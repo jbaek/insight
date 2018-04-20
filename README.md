@@ -28,5 +28,5 @@ West Nile Virus (WNV) is a mosquito borne disease that can be fatal with 262 dea
 - Output results in web app: Flask
 
 ## References
-http://westnile.ca.gov/
-https://data.cityofchicago.org
+- http://westnile.ca.gov/
+- https://data.cityofchicago.org
