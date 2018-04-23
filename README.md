@@ -42,10 +42,10 @@ The SMOG scores can be compared with other readability scores that can be added 
 - Store raw ebook data and metadata: S3
 - Data preprocessing: ? 
 - Sentence segmentation and tokenizing: SparkML/spark-nlp
-    - Store sentences: Postgres?
+    - Store sentences: Cassandra/ElasticSearch?
 - Count number of sentences, number of syllables: Spark
     - Additional transformations and aggregations to support queries: Spark
-- Store results: Postgres?
+- Store results: Postgres/ElasticSearch?
 - Compute readability score: SQL/web app 
 - Web app to perform searches: Flask
 
