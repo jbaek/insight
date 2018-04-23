@@ -16,7 +16,7 @@ Also, it would be interesting to see if selected words can be replaced to either
 ### Computation
 There are several ways to compute the readability of a text, but I will be starting with "Simple Measure of Gobbledygook" or SMOG which is roughly the square root of the ratio between the number of multi-syllabic words and number of sentences in the text with at least 30 sentences. This means that the readability of a book will vary depending on the pages selected. SMOG can be compared with other readability scores. Other readability formulae can be added as well. 
 
-![SMOG Readability Forumula](https://github.com/jbaek/insight/img/smog_formula.png)
+![SMOG Readability Forumula](img/smog_formula.png)
 
 ### Possible queries
 1. What is the readability of book X?
