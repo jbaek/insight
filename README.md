@@ -14,11 +14,15 @@ For this project I will make a database where users can easily query the readabi
 Also, it would be interesting to see if selected words can be replaced to either increase or decrease the reading level of the passage. This would allow teachers to assign the same content to students of varying reading abilities. Newsela provides this service for news articles. 
 
 ## Computation
-There are several ways to compute the readability of a text, but I will be starting with the "Simple Measure of Gobbledygook" or SMOG which is roughly the square root of the ratio between the number of multi-syllabic words and number of sentences in the text with at least 30 sentences. This means that the readability of a book can change over the course of the book. The SMOG scores can be compared with other readability scores that can be added later. 
+There are several ways to compute the readability of a text, but I will be starting with the "Simple Measure of Gobbledygook" or SMOG which is roughly the square root of the ratio between the number of multi-syllabic words and number of sentences in the text with at least 30 sentences. This means that the readability of a book can change over the course of the book. 
 
 ![SMOG Readability Formula](img/smog_formula.png)
 
-### Possible queries
+The SMOG scores can be compared with other readability scores that can be added later. 
+- Flesch formula: average word length in syllables and average sentence length in words
+- Dale-Chall: average sentence length in words and "easy" words not in specified list
+
+## Possible queries
 1. What is the readability of book X?
 2. What is the readability of sentences M to N of book X?
 3. What is the distribution of readability scores for book X? 
