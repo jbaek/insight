@@ -1,2 +1,4 @@
+*.conf
+*.txt
 latex
 .DS_Store
