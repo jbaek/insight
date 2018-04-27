@@ -18,7 +18,8 @@ from pyspark.ml import Pipeline
 
 spark = SparkSession.builder.appName("ner").master("local[1]").config("spark.driver.memory","8G").config("spark.driver.maxResultSize", "2G").config("spark.jar", "lib/sparknlp.jar").config("spark.kryoserializer.buffer.max", "500m").getOrCreate()
 
-sentence_data = spark.createDataFrame([(1, "Hi I heard about Spark"), (2, "I wish Java could use case classes"), (3, "Logistic regression models are neat")], ["id", "rawDocument"])
+# sentence_data = spark.createDataFrame([(1, "Hi I heard about Spark"), (2, "I wish Java could use case classes"), (3, "Logistic regression models are neat")], ["id", "rawDocument"])
+sentence_data = spark.createDataFrame([(1, "Hi I heard about Spark. I wish Java could use case classes. Logistic regression models are neat"), (2, "Hello I really want this thing to work. This is my second sentence. This is my third sentence")], ["id", "rawDocument"])
 
 document_assembler = DocumentAssembler().setInputCol("rawDocument").setOutputCol("document")
 sentence_detector = SentenceDetector().setInputCols(["document"]).setOutputCol("sentence")
@@ -27,3 +28,6 @@ pipeline = Pipeline().setStages([document_assembler, sentence_detector])
 
 output = pipeline.fit(sentence_data).transform(sentence_data)
 output.show()
+output.printSchema()
+output.select("sentence").show()
+output.select("sentence").rdd.saveAsTextFile("sentence")
