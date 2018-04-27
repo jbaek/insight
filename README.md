@@ -5,7 +5,9 @@ Insight Data Engineering 18B
 - Calculating *readability* scores for the ebooks of Project Gutenberg, supplementing the scores with content metadata and sentiment, and making them easily queryable 
 
 ## Purpose
-The *readability* of a text is the text's difficulty, often expressed as a student's grade level (i.e. this student is reading at a 5th grade level). The *readability* is calculated from attributes of the text like sentence length, word length, and number of syllables. A teacher can then assign the correct difficulty of reading homework that matches the student's reading level. Newer teachers or parents who do not have that context will rely on the readings levels determined by childens' book publishers. This gives book publishers a lot of leverage but reading levels may vary between publishers.
+The *readability* of a text is the text's difficulty, often expressed as a student's grade level (i.e. this student is reading at a 5th grade level). The *readability* is calculated from attributes of the text like sentence length, word length, and number of syllables. A teacher can then assign the correct difficulty of reading homework that matches the student's reading level.
+
+Newer teachers or parents who do not have that context will rely on the readings levels determined by childens' book publishers. This gives book publishers a lot of leverage but reading levels may vary between publishers.
 
 Although the readability of the text can let a teacher know if the student will understand the words in the text, but the student may not connect with the material. Even worse, the student may be turned off by it. So the readability scores will be supplemented by Project Gutenberg metadata (e.g. genre) and flagging for potentially emotionally charged material like violence or hate speech. 
 
@@ -32,7 +34,7 @@ The SMOG scores can be compared with other readability scores that can be added 
 6. How does a book's readability vary between different scoring formulae?
 7. Which words needs to be replaced to increase or decrease by X reading levels?
 
-## Relevant Technologies 
+### Relevant Technologies 
 - S3
     - Store raw Project Gutenberg ebook data and metadata
 - Spark/spark-nlp
@@ -46,11 +48,13 @@ The SMOG scores can be compared with other readability scores that can be added 
     - Compute readability score
     - Display trends
 
-## Engineering Challenges
+![Pipeline](img/pipeline.png)
+
+### Engineering Challenges
 - NLP libraries like nltk started as research projects and not initially designed for production environments let alone distributed processing. spark-nlp is a new library and throughput for this particular use case is not known.
 - Structuring the ElasticSearch schema for these sets of queries
 
-## The Numbers
+### The Numbers
 - 56,000+ books on Project Gutenberg
 - Estimating ~1MB per book, will likely supplement with another corpus such as Wikipedia
 
