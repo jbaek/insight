@@ -48,6 +48,7 @@ The SMOG scores can be compared with other readability scores that can be added 
     - Compute readability score
     - Display trends
 
+### Pipeline
 ![Pipeline](img/pipeline.png)
 
 ### Engineering Challenges
@@ -57,6 +58,8 @@ The SMOG scores can be compared with other readability scores that can be added 
 ### The Numbers
 - 56,000+ books on Project Gutenberg
 - Estimating ~1MB per book, will likely supplement with another corpus such as Wikipedia
+- Compare with python spacy: ~14,000 wps for syntactic parsing 
+- Response time of web app: 
 
 ## References
 - https://juliasilge.com/blog/gobbledygook/
@@ -64,3 +67,4 @@ The SMOG scores can be compared with other readability scores that can be added 
 - https://en.wikipedia.org/wiki/SMOG 
 - http://nlp.johnsnowlabs.com/
 - https://github.com/c-w/gutenberg
+- https://spacy.io/usage/facts-figures
