@@ -57,7 +57,7 @@ The SMOG scores can be compared with other readability scores that can be added 
 
 ### The Numbers
 - 56,000+ books on Project Gutenberg
-- Estimating ~1MB per book, will likely supplement with another corpus such as Wikipedia
+- Estimating ~2MB per book, will likely supplement with another corpus such as Wikipedia
 - Compare with python spacy: ~14,000 wps for syntactic parsing 
 - Response time of web app: 
 
