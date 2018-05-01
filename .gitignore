@@ -1,4 +1,6 @@
 *.conf
+*.swp
 *.txt
+*.parquet
 latex
 .DS_Store
