@@ -3,7 +3,9 @@ import sys
 import os
 import shutil
 import glob
+import json
 from os.path import isfile, join
+import random
 
 sys.path.extend(glob.glob(os.path.join(os.path.expanduser("~"), ".ivy2/jars/*.jar")))
 from sparknlp.base import DocumentAssembler, Finisher
@@ -11,6 +13,7 @@ from sparknlp.annotator import SentenceDetector
 from sparknlp.common import *
 from pyspark.sql import SparkSession
 from pyspark.ml import Pipeline
+from pyspark import SparkContext
 from elasticsearch import Elasticsearch
 
 TEXT_FOLDER = 'txt'
@@ -22,23 +25,68 @@ def main():
     pipeline = _setup_pipeline()
     output = _segment_sentences(sentence_data, pipeline)
     output.printSchema()
-    sentence = output.select("sentence")
+    sentence = output.select(["doc_id", "sentence"]).toJSON()
+    _write_rdd_textfile(sentence, 'txt/sentence')
+
+    _start_es()
+    es_write_conf = _set_es_conf()
+    sentence = sentence.map(lambda x: _format_data(x))
+    _write_to_es(sentence, es_write_conf)
+    spark.stop()
+    # _read_es()
     # sentences = sentence.rdd.map(lambda s: s.sentence[0].result)
-    sentences = sentence.rdd.flatMap(lambda s: s.sentence)
-    results = sentences.map(lambda s: s.result)
-    shutil.rmtree('txt/sentence')
-    results.saveAsTextFile("txt/sentence")
-    results.collect()
-    # _start_es()
-    # es_write_conf = _set_es_conf()
+    # sentences = sentence.rdd.flatMap(lambda s: s.sentence)
+    # results = sentence.rdd.map(lambda s: s.result).zipWithUniqueId()
+    # _write_rdd_textfile(results, 'txt/results')
+
+    # results.collect()
     # _write_to_es(output.rdd, es_write_conf)
+
     # output.select("sentence").show()
     # shutil.rmtree('txt/sentence')
     # output.select("sentence").rdd.saveAsTextFile("txt/sentence")
 
+def _read_es():
+    sc = SparkContext(appName="PythonSparkReading")
+    sc.setLogLevel("WARN")
+
+    es_read_conf = {
+            # node sending data to (should be the master)    
+            "es.nodes" : "localhost:9200",
+            # read resource in the format 'index/doc-type'
+            "es.resource" : "sentences/testdoc"
+            }
+
+    es_rdd = sc.newAPIHadoopRDD(
+            inputFormatClass="org.elasticsearch.hadoop.mr.EsInputFormat",
+            keyClass="org.apache.hadoop.io.NullWritable",
+            valueClass="org.elasticsearch.hadoop.mr.LinkedMapWritable",
+            conf=es_read_conf
+            )
+
+    first_five = es_rdd.take(2)
+    print(first_five)
+    es_rdd = es_rdd.map(lambda x: x[1])
+    es_rdd.take(1)
+    sc.stop()
+
+def _format_data(x):
+    """ Make elasticsearch-hadoop compatible"""
+    print(type(x))
+    data = json.loads(x)
+    # data['doc_id'] = data.pop('count')
+    test = (data['doc_id'], json.dumps(data))
+    return (data['doc_id'], json.dumps(data))
+
+def _write_rdd_textfile(rdd, folder):
+    if os.path.isdir(folder):
+        shutil.rmtree(folder)
+    rdd.saveAsTextFile(folder)
+
+
 def _set_env_vars():
     # set environment variable PYSPARK_SUBMIT_ARGS
-    os.environ['PYSPARK_SUBMIT_ARGS'] = '--jars ../../elasticsearch-hadoop-6.2.4/dist/elasticsearch-spark-20_2.11-6.2.4.jar pyspark-shell'
+    os.environ['PYSPARK_SUBMIT_ARGS'] = '--jars ../elasticsearch-hadoop-6.2.4/dist/elasticsearch-spark-20_2.11-6.2.4.jar pyspark-shell'
 
 def _start_es():
     es_cluster=["localhost:9200"]
@@ -48,13 +96,12 @@ def _start_es():
         es.indices.create('sentences')
 
 def _write_to_es(rdd, es_write_conf):
+    print(os.environ)
     rdd.saveAsNewAPIHadoopFile(
             path='-',
             outputFormatClass="org.elasticsearch.hadoop.mr.EsOutputFormat",
             keyClass="org.apache.hadoop.io.NullWritable",
             valueClass="org.elasticsearch.hadoop.mr.LinkedMapWritable",
-
-            # critically, we must specify our `es_write_conf`
             conf=es_write_conf
             )
 
@@ -62,12 +109,10 @@ def _set_es_conf():
     es_write_conf = {
             # node sending data to (this should be the master)
             "es.nodes" : 'localhost',
-            # specify the port in case not the default port
             "es.port" : '9200',
             # specify a resource in the form 'index/doc-type'
-            "es.resource" : 'testindex/testdoc',
-            # is the input JSON?
-            # "es.input.json" : "yes",
+            "es.resource" : 'sentences/testdoc',
+            "es.input.json" : "yes",
             # field in mapping used to specify the ES document ID
             "es.mapping.id": "doc_id"
             }
@@ -83,9 +128,9 @@ def _read_files(spark):
     print(files)
     sentence_data = spark.createDataFrame(
             [
-                ("Hi I heard about Spark. I wish Java could use case classes. Logistic regression models are neat", )
+                ("Hi I heard about Spark. I wish Java could use case classes. Logistic regression models are neat", 999999)
             ],
-            ["rawDocument"]
+            ["rawDocument", "doc_id"]
             )
     for textfile in files:
         new_file = _read_file(spark, textfile)
@@ -98,7 +143,7 @@ def _read_file(spark, textfile):
     with open(filepath, 'r') as content_file:
         content = content_file.read().replace('\n', '')
         content = content.replace('\r', '')
-    return spark.createDataFrame([[content]])
+    return spark.createDataFrame([[content, random.randint(0, 1000)]])
 
 def _setup_pipeline():
     document_assembler = DocumentAssembler().setInputCol("rawDocument").setOutputCol("document")
