@@ -9,7 +9,7 @@ import random
 
 sys.path.extend(glob.glob(os.path.join(os.path.expanduser("~"), ".ivy2/jars/*.jar")))
 from sparknlp.base import DocumentAssembler, Finisher
-from sparknlp.annotator import SentenceDetector, Tokenizer
+from sparknlp.annotator import SentenceDetector, Tokenizer, Lemmatizer, SentimentDetector
 from sparknlp.common import *
 from pyspark.sql import SparkSession
 from pyspark.ml import Pipeline
@@ -22,10 +22,12 @@ def main():
     _set_env_vars()
     spark = _start_spark()
     sentence_data = _read_files(spark)
-    pipeline = _setup_pipeline()
-    output = _segment_sentences(sentence_data, pipeline)
+    # pipeline = _setup_pipeline()
+    # output = _segment_sentences(sentence_data, pipeline)
+    pipeline = _setup_sentiment_pipeline()
+    output = _sentiment_analysis(sentence_data, pipeline)
     output.printSchema()
-    _write_rdd_textfile(output.rdd, 'txt/tokens')
+    _write_rdd_textfile(output.rdd, 'txt/sentiment')
 
     # sentence = output.select(["doc_id", "sentence"]).toJSON()
     # _write_rdd_textfile(sentence, 'txt/sentence')
@@ -154,9 +156,27 @@ def _setup_pipeline():
     pipeline = Pipeline().setStages([document_assembler, sentence_detector, tokenizer])
     return pipeline
 
+
 def _segment_sentences(sentence_data, pipeline):
     output = pipeline.fit(sentence_data).transform(sentence_data)
     return output
+
+
+def _setup_sentiment_pipeline():
+    document_assembler = DocumentAssembler().setInputCol("rawDocument").setOutputCol("document").setIdCol("doc_id")
+    sentence_detector = SentenceDetector().setInputCols(["document"]).setOutputCol("sentence")
+    tokenizer = Tokenizer().setInputCols(["sentence"]).setOutputCol("token")
+    lemmatizer = Lemmatizer().setInputCols(["token"]).setOutputCol("lemma").setDictionary("txt/corpus/lemmas_small.txt", key_delimiter="->", value_delimiter="\t")
+    sentiment_detector = SentimentDetector().setInputCols(["lemma", "sentence"]).setOutputCol("sentiment_score").setDictionary("txt/corpus/default-sentiment-dict.txt", ",")
+    finisher = Finisher().setInputCols(["sentiment_score"]).setOutputCols(["sentiment"])
+    pipeline = Pipeline(stages=[document_assembler, sentence_detector, tokenizer, lemmatizer, sentiment_detector, finisher])
+    return pipeline
+
+
+def _sentiment_analysis(data, pipeline):
+    model = pipeline.fit(data)
+    result = model.transform(data)
+    return result
 
 
 if __name__ == '__main__':
