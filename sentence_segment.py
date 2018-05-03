@@ -9,7 +9,7 @@ import random
 
 sys.path.extend(glob.glob(os.path.join(os.path.expanduser("~"), ".ivy2/jars/*.jar")))
 from sparknlp.base import DocumentAssembler, Finisher
-from sparknlp.annotator import SentenceDetector
+from sparknlp.annotator import SentenceDetector, Tokenizer
 from sparknlp.common import *
 from pyspark.sql import SparkSession
 from pyspark.ml import Pipeline
@@ -25,13 +25,15 @@ def main():
     pipeline = _setup_pipeline()
     output = _segment_sentences(sentence_data, pipeline)
     output.printSchema()
-    sentence = output.select(["doc_id", "sentence"]).toJSON()
-    _write_rdd_textfile(sentence, 'txt/sentence')
+    _write_rdd_textfile(output.rdd, 'txt/tokens')
 
-    _start_es()
-    es_write_conf = _set_es_conf()
-    sentence = sentence.map(lambda x: _format_data(x))
-    _write_to_es(sentence, es_write_conf)
+    # sentence = output.select(["doc_id", "sentence"]).toJSON()
+    # _write_rdd_textfile(sentence, 'txt/sentence')
+
+    # _start_es()
+    # es_write_conf = _set_es_conf()
+    # sentence = sentence.map(lambda x: _format_data(x))
+    # _write_to_es(sentence, es_write_conf)
     spark.stop()
     # _read_es()
     # sentences = sentence.rdd.map(lambda s: s.sentence[0].result)
@@ -146,9 +148,10 @@ def _read_file(spark, textfile):
     return spark.createDataFrame([[content, random.randint(0, 1000)]])
 
 def _setup_pipeline():
-    document_assembler = DocumentAssembler().setInputCol("rawDocument").setOutputCol("document")
+    document_assembler = DocumentAssembler().setInputCol("rawDocument").setOutputCol("document").setIdCol("doc_id")
     sentence_detector = SentenceDetector().setInputCols(["document"]).setOutputCol("sentence")
-    pipeline = Pipeline().setStages([document_assembler, sentence_detector])
+    tokenizer = Tokenizer().setInputCols(["sentence"]).setOutputCol("token")
+    pipeline = Pipeline().setStages([document_assembler, sentence_detector, tokenizer])
     return pipeline
 
 def _segment_sentences(sentence_data, pipeline):
