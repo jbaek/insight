@@ -2,8 +2,9 @@
 import json
 from elasticsearch import Elasticsearch
 
-from flask import Flask
+from flask import Flask, jsonify
 app = Flask(__name__)
+app.config['JSONIFY_PRETTYPRINT_REGULAR'] = True
 
 @app.route("/")
 def hello():
@@ -16,11 +17,15 @@ def hello():
             }
 
     res = es.search(index="sentences", doc_type='testdoctype', body=doc,scroll='1m')
-    # books = res.get('hits').get('hits')
-    # for book in books:
-        # book = book.get('_source').get('sentence')
-    return json.dumps(res, indent=4)
-
+    books = res.get('hits').get('hits')
+    toweb = []
+    for book in books:
+        book = book.get('_source')#.get('sentence')
+        toweb.append(book)
+        # book = json.dumps(book)
+        # toweb = toweb + book + "\n"
+    # return toweb
+    return jsonify(toweb)
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0')

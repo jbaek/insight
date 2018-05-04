@@ -175,9 +175,9 @@ def _read_files(spark):
             ],
             ["rawDocument", "doc_id"]
             )
-    # for textfile in files:
-        # new_file = _read_file(spark, textfile)
-        # sentence_data = sentence_data.union(new_file)
+    for textfile in files:
+        new_file = _read_file(spark, textfile)
+        sentence_data = sentence_data.union(new_file)
     return sentence_data
 
 def _read_file(spark, textfile):
