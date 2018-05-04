@@ -13,6 +13,7 @@ from sparknlp.annotator import SentenceDetector, Tokenizer, Lemmatizer, Sentimen
 from sparknlp.common import *
 import pyspark.sql.functions as func
 from pyspark.sql import SparkSession
+from pyspark.sql.types import IntegerType
 from pyspark.ml import Pipeline
 from pyspark import SparkContext
 from elasticsearch import Elasticsearch
@@ -25,14 +26,19 @@ def main():
     sentence_data = _read_files(spark)
     pipeline = _setup_pipeline()
     output = _segment_sentences(sentence_data, pipeline)
+
     # pipeline = _setup_sentiment_pipeline()
     # output = _sentiment_analysis(sentence_data, pipeline)
     # _write_rdd_textfile(output.rdd, 'txt/sentiment')
-    output.printSchema()
 
-    exploded = output.select("doc_id", func.size("sentence.result"), func.explode("sentence.result").alias("sentence"))
-    exploded.groupby("doc_id").count().show()
-    _write_rdd_textfile(exploded.rdd, 'txt/sentence')
+    output.printSchema()
+    count_syllables = func.udf(lambda s: _udf_count_syllables_sentence(s), IntegerType())
+    # cms = udf(count_multiple_syllables, IntegerType())
+    exploded = output.select("doc_id", func.size("sentence.result").alias("sentenceCount"), func.explode("sentence.result").alias("sentence"))
+    exploded = exploded.select("doc_id", "sentenceCount", count_syllables("sentence").alias('syllableCount'), "sentence")
+    exploded.show(20, False)
+    # _write_rdd_textfile(exploded.rdd, 'txt/sentence')
+    # exploded.groupby("doc_id").count().show()
 
     # sentence = output.select(["doc_id", "sentence"]).toJSON()
     # _write_rdd_textfile(sentence, 'txt/sentence')
@@ -52,6 +58,17 @@ def main():
 
     # results.collect()
     # _write_to_es(output.rdd, es_write_conf)
+
+
+def _udf_count_syllables_sentence(sentence):
+    syllable_count = 0
+    for word in sentence.split(' '):
+        syllable_count += _count_syllables_word(word)
+    return syllable_count
+
+
+def _count_syllables_word(word):
+    return len(word)
 
 
 def _read_es():
@@ -156,8 +173,8 @@ def _read_file(spark, textfile):
 def _setup_pipeline():
     document_assembler = DocumentAssembler().setInputCol("rawDocument").setOutputCol("document").setIdCol("doc_id")
     sentence_detector = SentenceDetector().setInputCols(["document"]).setOutputCol("sentence")
-    tokenizer = Tokenizer().setInputCols(["sentence"]).setOutputCol("token")
-    pipeline = Pipeline().setStages([document_assembler, sentence_detector, tokenizer])
+    # tokenizer = Tokenizer().setInputCols(["sentence"]).setOutputCol("token")
+    pipeline = Pipeline().setStages([document_assembler, sentence_detector])
     return pipeline
 
 
