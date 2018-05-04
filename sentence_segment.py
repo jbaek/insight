@@ -33,8 +33,7 @@ def main():
 
     output.printSchema()
     count_syllables = func.udf(lambda s: _udf_count_syllables_sentence(s), IntegerType())
-    # cms = udf(count_multiple_syllables, IntegerType())
-    exploded = output.select("doc_id", func.size("sentence.result").alias("sentenceCount"), func.explode("sentence.result").alias("sentence"))
+    exploded = output.select(func.monotonically_increasing_id().alias("doc_id"), func.size("sentence.result").alias("sentenceCount"), func.explode("sentence.result").alias("sentence"))
     exploded = exploded.select("doc_id", "sentenceCount", count_syllables("sentence").alias('syllableCount'), "sentence")
     exploded.show(20, False)
     # _write_rdd_textfile(exploded.rdd, 'txt/sentence')
@@ -44,10 +43,10 @@ def main():
     # _write_rdd_textfile(sentence, 'txt/sentence')
 
     # Write entire array to ES
-    # _start_es()
-    # es_write_conf = _set_es_conf()
-    # sentence = sentence.map(lambda x: _format_data(x))
-    # _write_to_es(sentence, es_write_conf)
+    _start_es()
+    es_write_conf = _set_es_conf()
+    exploded = exploded.toJSON().map(lambda x: _format_data(x))
+    _write_to_es(exploded, es_write_conf)
     spark.stop()
     # _read_es()
 
@@ -61,14 +60,33 @@ def main():
 
 
 def _udf_count_syllables_sentence(sentence):
-    syllable_count = 0
+    multisyllable_count = 0
     for word in sentence.split(' '):
-        syllable_count += _count_syllables_word(word)
-    return syllable_count
+        if _count_syllables_word(word) > 1:
+            multisyllable_count += 1
+    return multisyllable_count
 
 
 def _count_syllables_word(word):
-    return len(word)
+    vowels = "aeiouy"
+    numVowels = 0
+    lastWasVowel = False
+    for wc in word:
+        foundVowel = False
+        for v in vowels:
+            if v == wc:
+                if not lastWasVowel:
+                    numVowels+=1   #don't count diphthongs
+                foundVowel = lastWasVowel = True
+                break
+        if not foundVowel:  #If full cycle and no vowel found, set lastWasVowel to false
+            lastWasVowel = False
+    if len(word) > 2 and word[-2:] == "es": #Remove es - it's "usually" silent (?)
+        numVowels-=1
+    elif len(word) > 1 and word[-1:] == "e":    #remove silent e
+        numVowels-=1
+    return numVowels
+    # return len(word)
 
 
 def _read_es():
@@ -79,7 +97,7 @@ def _read_es():
             # node sending data to (should be the master)    
             "es.nodes" : "localhost:9200",
             # read resource in the format 'index/doc-type'
-            "es.resource" : "sentences/testdoc"
+            "es.resource" : "sentences/testdoctype"
             }
 
     es_rdd = sc.newAPIHadoopRDD(
@@ -97,11 +115,11 @@ def _read_es():
 
 def _format_data(x):
     """ Make elasticsearch-hadoop compatible"""
-    print(type(x))
+    # print(type(x))
     data = json.loads(x)
     # data['doc_id'] = data.pop('count')
     test = (data['doc_id'], json.dumps(data))
-    return (data['doc_id'], json.dumps(data))
+    return test
 
 def _write_rdd_textfile(rdd, folder):
     if os.path.isdir(folder):
@@ -136,7 +154,7 @@ def _set_es_conf():
             "es.nodes" : 'localhost',
             "es.port" : '9200',
             # specify a resource in the form 'index/doc-type'
-            "es.resource" : 'sentences/testdoc',
+            "es.resource" : 'sentences/testdoctype',
             "es.input.json" : "yes",
             # field in mapping used to specify the ES document ID
             "es.mapping.id": "doc_id"
@@ -157,9 +175,9 @@ def _read_files(spark):
             ],
             ["rawDocument", "doc_id"]
             )
-    for textfile in files:
-        new_file = _read_file(spark, textfile)
-        sentence_data = sentence_data.union(new_file)
+    # for textfile in files:
+        # new_file = _read_file(spark, textfile)
+        # sentence_data = sentence_data.union(new_file)
     return sentence_data
 
 def _read_file(spark, textfile):
