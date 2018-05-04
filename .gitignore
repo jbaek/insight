@@ -2,5 +2,6 @@
 *.swp
 *.txt
 *.parquet
+*.log
 latex
 .DS_Store

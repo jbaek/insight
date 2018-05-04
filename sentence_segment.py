@@ -11,6 +11,7 @@ sys.path.extend(glob.glob(os.path.join(os.path.expanduser("~"), ".ivy2/jars/*.ja
 from sparknlp.base import DocumentAssembler, Finisher
 from sparknlp.annotator import SentenceDetector, Tokenizer, Lemmatizer, SentimentDetector
 from sparknlp.common import *
+import pyspark.sql.functions as func
 from pyspark.sql import SparkSession
 from pyspark.ml import Pipeline
 from pyspark import SparkContext
@@ -22,22 +23,28 @@ def main():
     _set_env_vars()
     spark = _start_spark()
     sentence_data = _read_files(spark)
-    # pipeline = _setup_pipeline()
-    # output = _segment_sentences(sentence_data, pipeline)
-    pipeline = _setup_sentiment_pipeline()
-    output = _sentiment_analysis(sentence_data, pipeline)
+    pipeline = _setup_pipeline()
+    output = _segment_sentences(sentence_data, pipeline)
+    # pipeline = _setup_sentiment_pipeline()
+    # output = _sentiment_analysis(sentence_data, pipeline)
+    # _write_rdd_textfile(output.rdd, 'txt/sentiment')
     output.printSchema()
-    _write_rdd_textfile(output.rdd, 'txt/sentiment')
+
+    exploded = output.select("doc_id", func.size("sentence.result"), func.explode("sentence.result").alias("sentence"))
+    exploded.groupby("doc_id").count().show()
+    _write_rdd_textfile(exploded.rdd, 'txt/sentence')
 
     # sentence = output.select(["doc_id", "sentence"]).toJSON()
     # _write_rdd_textfile(sentence, 'txt/sentence')
 
+    # Write entire array to ES
     # _start_es()
     # es_write_conf = _set_es_conf()
     # sentence = sentence.map(lambda x: _format_data(x))
     # _write_to_es(sentence, es_write_conf)
     spark.stop()
     # _read_es()
+
     # sentences = sentence.rdd.map(lambda s: s.sentence[0].result)
     # sentences = sentence.rdd.flatMap(lambda s: s.sentence)
     # results = sentence.rdd.map(lambda s: s.result).zipWithUniqueId()
@@ -46,9 +53,6 @@ def main():
     # results.collect()
     # _write_to_es(output.rdd, es_write_conf)
 
-    # output.select("sentence").show()
-    # shutil.rmtree('txt/sentence')
-    # output.select("sentence").rdd.saveAsTextFile("txt/sentence")
 
 def _read_es():
     sc = SparkContext(appName="PythonSparkReading")
@@ -163,11 +167,12 @@ def _segment_sentences(sentence_data, pipeline):
 
 
 def _setup_sentiment_pipeline():
+    lexicon = 'lexicon.txt'
     document_assembler = DocumentAssembler().setInputCol("rawDocument").setOutputCol("document").setIdCol("doc_id")
     sentence_detector = SentenceDetector().setInputCols(["document"]).setOutputCol("sentence")
     tokenizer = Tokenizer().setInputCols(["sentence"]).setOutputCol("token")
     lemmatizer = Lemmatizer().setInputCols(["token"]).setOutputCol("lemma").setDictionary("txt/corpus/lemmas_small.txt", key_delimiter="->", value_delimiter="\t")
-    sentiment_detector = SentimentDetector().setInputCols(["lemma", "sentence"]).setOutputCol("sentiment_score").setDictionary("txt/corpus/default-sentiment-dict.txt", ",")
+    sentiment_detector = SentimentDetector().setInputCols(["lemma", "sentence"]).setOutputCol("sentiment_score").setDictionary("txt/corpus/{0}".format(lexicon), ",")
     finisher = Finisher().setInputCols(["sentiment_score"]).setOutputCols(["sentiment"])
     pipeline = Pipeline(stages=[document_assembler, sentence_detector, tokenizer, lemmatizer, sentiment_detector, finisher])
     return pipeline
