@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html>
+    <head>
+        <title>Flask Intro</title>
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <link href="static/bootstrap.min.css" rel="stylesheet" media="screen">
+    </head>
+    <body>
+        <div class="container">
+            <h1>Welcome to Flask!</h2>
+            <br>
+            <p>Click <a href="/">here</a> to go home.</p>
+        </div>
+		<!--
+		<div class="container">
+		    {{ books }}
+		</div>
+		-->
+		<div class="container">
+		    <table>
+			   {% for book in books %}
+			      <tr><td>Multisyllable</td><td>Sentence</td></tr>
+				  <tr>
+					  <td>{{ book['_source']['syllableCount'] }} </td> 
+				      <td>{{ book['_source']['sentence'] }}</td>
+				  </tr>
+			   {% endfor %}
+		    </table>
+		</div>
+		<div class="container">
+		    <p>My string: {{my_string}}</p>
+		    <p>Value from the list: {{my_list[3]}}</p>
+		    <p>Loop through the list:</p>
+		    <ul>
+		        {% for n in my_list %}
+		            <li>{{n}}</li>
+		        {% endfor %}
+		    </ul>
+		</div>
+    </body>
+</html>

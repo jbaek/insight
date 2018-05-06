@@ -43,13 +43,13 @@ def main():
     # _write_rdd_textfile(sentence, 'txt/sentence')
 
     # Write entire array to ES
-    _start_es()
-    es_write_conf = _set_es_conf()
-    exploded = exploded.toJSON().map(lambda x: _format_data(x))
-    _write_to_es(exploded, es_write_conf)
-    spark.stop()
-    # _read_es()
+    # _start_es()
+    # es_write_conf = _set_es_conf()
+    # exploded = exploded.toJSON().map(lambda x: _format_data(x))
+    # _write_to_es(exploded, es_write_conf)
+    # spark.stop()
 
+    # _read_es()
     # sentences = sentence.rdd.map(lambda s: s.sentence[0].result)
     # sentences = sentence.rdd.flatMap(lambda s: s.sentence)
     # results = sentence.rdd.map(lambda s: s.result).zipWithUniqueId()
@@ -184,8 +184,8 @@ def _read_file(spark, textfile):
     filepath = '{0}/{1}'.format(TEXT_FOLDER, textfile)
     print(filepath)
     with open(filepath, 'r') as content_file:
-        content = content_file.read().replace('\n', '')
-        content = content.replace('\r', '')
+        content = content_file.read().replace('\n', ' ')
+        content = content.replace('\r', ' ')
     return spark.createDataFrame([[content, random.randint(0, 1000)]])
 
 def _setup_pipeline():
