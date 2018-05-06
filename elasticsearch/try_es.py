@@ -74,8 +74,6 @@ es_rdd = sc.newAPIHadoopRDD(
         conf=es_read_conf
         )
 
-first_five = es_rdd.take(5)
-print(first_five)
+first_five = es_rdd.take(2)
 es_rdd = es_rdd.map(lambda x: x[1])
 es_rdd.take(1)
-

@@ -2,5 +2,8 @@
 *.swp
 *.txt
 *.parquet
+*.log
+*.out
+*.pyc
 latex
 .DS_Store
