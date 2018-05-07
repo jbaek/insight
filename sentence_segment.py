@@ -6,6 +6,9 @@ import glob
 import json
 from os.path import isfile, join
 import random
+import logging
+import boto3
+from boto.s3.connection import S3Connection
 
 sys.path.extend(glob.glob(os.path.join(os.path.expanduser("~"), ".ivy2/jars/*.jar")))
 from sparknlp.base import DocumentAssembler, Finisher
@@ -18,18 +21,33 @@ from pyspark.ml import Pipeline
 from pyspark import SparkContext
 from elasticsearch import Elasticsearch
 
-TEXT_FOLDER = 'txt'
+TEXT_FOLDER = 'testing'
+
+def _start_spark():
+    spark = SparkSession.builder.appName("ner").master("local[1]").config("spark.driver.memory","8G").config("spark.driver.maxResultSize", "2G").config("spark.jar", "lib/sparknlp.jar").config("spark.kryoserializer.buffer.max", "500m").getOrCreate()
+    return spark
+
+
+spark = _start_spark()
 
 def main():
+
     _set_env_vars()
-    spark = _start_spark()
-    # sentence_df = _read_files(spark)
-    sentence_df = _read_s3_files(spark)
-    sentence_df.printSchema()
-    _write_rdd_textfile(sentence_df.rdd, 'txt/sentence')
+    s3resource = boto3.resource('s3')
+    keys = _list_s3_files(s3resource, filetype=TEXT_FOLDER)
+    parallel_keys = spark.sparkContext.parallelize(keys)
+    activation = parallel_keys.flatMap(_read_s3_file)
+    logging.info(type(activation))
+    # _write_rdd_textfile(activation, 'txt/books')
+
+    books_df = _read_s3_files(spark, activation)
+    books_df.printSchema()
+    num_books = books_df.count()
+    logging.info("Number of books: {0}".format(num_books))
 
     # pipeline = _setup_pipeline()
-    # output = _segment_sentences(sentence_data, pipeline)
+    # output = _segment_sentences(books_df, pipeline)
+    # _write_rdd_textfile(output.rdd, 'txt/books')
 
     # pipeline = _setup_sentiment_pipeline()
     # output = _sentiment_analysis(sentence_data, pipeline)
@@ -124,8 +142,6 @@ def _format_data(x):
     # data['doc_id'] = data.pop('count')
     test = (data['doc_id'], json.dumps(data))
     return test
-
-def _write_rdd_textfile(rdd, folder):
     if os.path.isdir(folder):
         shutil.rmtree(folder)
     rdd.saveAsTextFile(folder)
@@ -166,44 +182,60 @@ def _set_es_conf():
     return es_write_conf
 
 
-def _start_spark():
-    spark = SparkSession.builder.appName("ner").master("local[1]").config("spark.driver.memory","8G").config("spark.driver.maxResultSize", "2G").config("spark.jar", "lib/sparknlp.jar").config("spark.kryoserializer.buffer.max", "500m").getOrCreate()
-    return spark
+def _list_s3_files(s3resource, filetype):
+    bucket = s3resource.Bucket('jason-b')
+    fileslist = [textfile.key for textfile in bucket.objects.filter(Prefix=filetype)]
 
-def _read_s3_files(spark):
-    s3_folder = "s3a://jason-b/testing"
-    ebookRDD = spark.sparkContext.wholeTextFiles(s3_folder, use_unicode=False)
-    sentence_df = spark.createDataFrame(ebookRDD, ["filepath", "rawDocument"])
-    # sentence_df = sentence_df.select("filepath", func.regexp_replace('rawDocument', '/\r?\n|\r/g', ' ').alias("rawDocument"))
-    sentence_df = sentence_df.select("filepath", "rawDocument", func.translate('rawDocument', '\n\r', '  ').alias("rawDocument"))
-    return sentence_df
+    # fileslist = [textfile.key for textfile in bucket.objects.filter(Prefix=filetype)]
+    # fileslist.remove('txt/')
+    # fileslist.remove('txt//newvolume/ebooks/10442.txt')
+    # fileslist.remove('txt//newvolume/ebooks/15445.txt')
+    return fileslist
 
+def map_func(key):
+    # Use the key to read in the file contents, split on line endings
+    for line in key.get_contents_as_string().splitlines():
+        # parse one line of json
+        j = json.loads(line)
+        if "user_id" in j & "event" in j:
+            if j['event'] == "event_we_care_about":
+                yield j['user_id'], j['event']
 
-def _read_files(spark):
-    files = [f for f in os.listdir(TEXT_FOLDER) if isfile(join(TEXT_FOLDER, f))]
-    print(files)
-    sentence_data = spark.createDataFrame(
-            [
-                ("Hi I heard about Spark. I wish Java could use case classes. Logistic regression models are neat", 999999)
-            ],
-            ["rawDocument", "doc_id"]
+def _read_s3_files(spark, book_rdd):
+    s3_bucket = "s3a://jason-b"
+
+    # books_df = create_testbook_df(spark)
+    # books_df = books_df.union(book_rdd.toDF())
+
+    # for bookfile in fileslist:
+        # filepath = "{0}/{1}".format(s3_bucket, bookfile)
+        # next_book_df = _read_s3_file(spark, filepath)
+        # books_df = books_df.union(next_book_df)
+
+    books_df = books_df.select(
+            "filepath",
+            func.substring_index("filePath", '/', -1).alias("fileName"),
+            func.translate('rawDocument', '\n\r', '  ').alias("rawDocument")
             )
-    for textfile in files:
-        new_file = _read_file(spark, textfile)
-        sentence_data = sentence_data.union(new_file)
-    return sentence_data
+    return books_df
 
 
-def _read_file(spark, textfile):
-    filepath = '{0}/{1}'.format(TEXT_FOLDER, textfile)
-    print(filepath)
-    with open(filepath, 'r') as content_file:
-        content = content_file.read().replace('\n', ' ')
-        content = content.replace('\r', ' ')
-    return spark.createDataFrame([[content, random.randint(0, 1000)]])
+def create_testbook_df(spark):
+    test_book = "Hi I heard about Spark. I wish Java\n\rcould use case classes. Logistic regression models are neat"
+    books_df = spark.createDataFrame(
+            [("999999", test_book)],
+            ["filepath", "rawDocument"]
+            )
+    return books_df
+
+
+def _read_s3_file(filepath):
+    booksRDD = spark.sparkContext.wholeTextFiles(filepath, use_unicode=False)
+    books_df = spark.createDataFrame(booksRDD, ["filepath", "rawDocument"])
+    return booksRDD
 
 def _setup_pipeline():
-    document_assembler = DocumentAssembler().setInputCol("rawDocument").setOutputCol("document").setIdCol("doc_id")
+    document_assembler = DocumentAssembler().setInputCol("rawDocument").setOutputCol("document").setIdCol("fileName")
     sentence_detector = SentenceDetector().setInputCols(["document"]).setOutputCol("sentence")
     # tokenizer = Tokenizer().setInputCols(["sentence"]).setOutputCol("token")
     pipeline = Pipeline().setStages([document_assembler, sentence_detector])
@@ -234,4 +266,9 @@ def _sentiment_analysis(data, pipeline):
 
 
 if __name__ == '__main__':
+    FORMAT = "[%(filename)s:%(lineno)s - %(funcName)20s() ] %(message)s"
+    logging.basicConfig(filename="log/sentence_segment.log", format=FORMAT, level=logging.INFO)
+    start_time = time.time()
     main()
+    end_time = time.time()
+    logging.info("RUNTIME: {0}".format(end_time - start_time))
