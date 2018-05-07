@@ -23,19 +23,23 @@ TEXT_FOLDER = 'txt'
 def main():
     _set_env_vars()
     spark = _start_spark()
-    sentence_data = _read_files(spark)
-    pipeline = _setup_pipeline()
-    output = _segment_sentences(sentence_data, pipeline)
+    # sentence_df = _read_files(spark)
+    sentence_df = _read_s3_files(spark)
+    sentence_df.printSchema()
+    _write_rdd_textfile(sentence_df.rdd, 'txt/sentence')
+
+    # pipeline = _setup_pipeline()
+    # output = _segment_sentences(sentence_data, pipeline)
 
     # pipeline = _setup_sentiment_pipeline()
     # output = _sentiment_analysis(sentence_data, pipeline)
     # _write_rdd_textfile(output.rdd, 'txt/sentiment')
 
-    output.printSchema()
-    count_syllables = func.udf(lambda s: _udf_count_syllables_sentence(s), IntegerType())
-    exploded = output.select(func.monotonically_increasing_id().alias("doc_id"), func.size("sentence.result").alias("sentenceCount"), func.explode("sentence.result").alias("sentence"))
-    exploded = exploded.select("doc_id", "sentenceCount", count_syllables("sentence").alias('syllableCount'), "sentence")
-    exploded.show(20, False)
+    # count_syllables = func.udf(lambda s: _udf_count_syllables_sentence(s), IntegerType())
+    # exploded = output.select(func.monotonically_increasing_id().alias("doc_id"), func.size("sentence.result").alias("sentenceCount"), func.explode("sentence.result").alias("sentence"))
+    # exploded = exploded.select("doc_id", "sentenceCount", count_syllables("sentence").alias('syllableCount'), "sentence")
+    # exploded.show(20, False)
+
     # _write_rdd_textfile(exploded.rdd, 'txt/sentence')
     # exploded.groupby("doc_id").count().show()
 
@@ -166,6 +170,15 @@ def _start_spark():
     spark = SparkSession.builder.appName("ner").master("local[1]").config("spark.driver.memory","8G").config("spark.driver.maxResultSize", "2G").config("spark.jar", "lib/sparknlp.jar").config("spark.kryoserializer.buffer.max", "500m").getOrCreate()
     return spark
 
+def _read_s3_files(spark):
+    s3_folder = "s3a://jason-b/testing"
+    ebookRDD = spark.sparkContext.wholeTextFiles(s3_folder, use_unicode=False)
+    sentence_df = spark.createDataFrame(ebookRDD, ["filepath", "rawDocument"])
+    # sentence_df = sentence_df.select("filepath", func.regexp_replace('rawDocument', '/\r?\n|\r/g', ' ').alias("rawDocument"))
+    sentence_df = sentence_df.select("filepath", "rawDocument", func.translate('rawDocument', '\n\r', '  ').alias("rawDocument"))
+    return sentence_df
+
+
 def _read_files(spark):
     files = [f for f in os.listdir(TEXT_FOLDER) if isfile(join(TEXT_FOLDER, f))]
     print(files)
@@ -179,6 +192,7 @@ def _read_files(spark):
         new_file = _read_file(spark, textfile)
         sentence_data = sentence_data.union(new_file)
     return sentence_data
+
 
 def _read_file(spark, textfile):
     filepath = '{0}/{1}'.format(TEXT_FOLDER, textfile)
