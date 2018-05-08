@@ -25,7 +25,7 @@ def _start_spark():
     """ create and configure SparkSession; for SparkSQL
     :returns: SparkSession object
     """
-    spark = SparkSession.builder.appName("ner").master("spark://ip-10-0-0-5.us-west-2.compute.internal:7077").config("spark.driver.memory","8G").config("spark.driver.maxResultSize", "2G").config("spark.jar", "lib/sparknlp.jar").config("spark.kryoserializer.buffer.max", "500m").getOrCreate()
+    spark = SparkSession.builder.appName("ner").master("spark://ip-10-0-0-5.us-west-2.compute.internal:7077").config("spark.driver.memory","8G").config("spark.driver.maxResultSize", "2G").config("spark.executor.memory", "5G").config("spark.jar", "lib/sparknlp.jar").config("spark.kryoserializer.buffer.max", "500m").getOrCreate()
     return spark
 
 TEXT_FOLDER = 'txt'
@@ -44,14 +44,14 @@ def main():
 
     _set_env_vars()
 
-    keys = _list_s3_files(s3resource, filetype=TEXT_FOLDER, numrows=100)
+    keys = _list_s3_files(s3resource, filetype=TEXT_FOLDER, numrows=54000)
     pkeys = spark.sparkContext.parallelize(keys, numSlices=3)
     logging.info(json.dumps(pkeys.collect(), indent=4))
     pbooks = pkeys.flatMap(map_func)
     logging.info("Number of partitions: {0}".format(pbooks.getNumPartitions()))
-    collected_books = pbooks.map(lambda x: x[:100]).collect()
-    logging.info(len(collected_books))
-    logging.info(json.dumps(collected_books, indent=4))
+    collected_books = pbooks.map(lambda x: x[:150]).collect()
+    logging.info("Num Books: {0}".format(len(collected_books)))
+    logging.info(json.dumps(collected_books[:5], indent=4))
 
     # testing_rdd = spark.sparkContext.wholeTextFiles("s3a://jason-b/{0}".format(TEXT_FOLDER), minPartitions=6, use_unicode=False)
 
@@ -144,7 +144,7 @@ def _list_s3_files(s3resource, filetype, numrows):
     fileslist = [textfile.key for textfile in bucket.objects.filter(Prefix=filetype)]
     fileslist.remove('{0}/'.format(TEXT_FOLDER))
     fileslist = fileslist[:numrows]
-    logging.info(fileslist)
+    logging.info("Num Files: {0}".format(len(fileslist)))
     with open('keyslist.txt', 'w') as keysfile:
         keysfile.write(json.dumps(fileslist, indent=4))
     return fileslist
