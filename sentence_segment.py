@@ -1,10 +1,10 @@
 import time
 import sys
 import os
+from os.path import isfile, join
 import shutil
 import glob
 import json
-from os.path import isfile, join
 import random
 import logging
 import boto3
@@ -22,28 +22,40 @@ from pyspark import SparkContext
 from elasticsearch import Elasticsearch
 
 TEXT_FOLDER = 'testing'
+s3_bucket = "s3a://jason-b"
 
 def _start_spark():
+    """ create and configure SparkSession; for SparkSQL
+    :returns: SparkSession object
+    """
     spark = SparkSession.builder.appName("ner").master("local[1]").config("spark.driver.memory","8G").config("spark.driver.maxResultSize", "2G").config("spark.jar", "lib/sparknlp.jar").config("spark.kryoserializer.buffer.max", "500m").getOrCreate()
     return spark
 
-
 spark = _start_spark()
+
+s3resource = boto3.resource('s3')
 
 def main():
 
     _set_env_vars()
-    s3resource = boto3.resource('s3')
     keys = _list_s3_files(s3resource, filetype=TEXT_FOLDER)
-    parallel_keys = spark.sparkContext.parallelize(keys)
-    activation = parallel_keys.flatMap(_read_s3_file)
-    logging.info(type(activation))
-    # _write_rdd_textfile(activation, 'txt/books')
+    with open('test_keys.txt', 'w') as keysfile:
+        keysfile.write(json.dumps(keys, indent=4))
+    # If the partitions are imbalanced, try to repartition
+    parallel_keys = spark.sparkContext.parallelize(keys, numSlices=3)
+    # activation = parallel_keys.map(lambda x: (x, x[0])) # _read_s3_file(x[0]))
+    activation = parallel_keys.map(lambda x: x[0].replace('testing/', ''))
+    _write_rdd_textfile(activation, 'txt/books')
+    s3_obj = activation.map(lambda x: get_s3_object(x))
+    _write_rdd_textfile(s3_obj, 'txt/objects')
+    # logging.info([x for x in activation.first()])
 
-    books_df = _read_s3_files(spark, activation)
-    books_df.printSchema()
-    num_books = books_df.count()
-    logging.info("Number of books: {0}".format(num_books))
+    # testRDD = spark.sparkContext.wholeTextFiles("s3a://jason-b/testing/Charles Dickens___David Copperfield.txt", use_unicode=False)
+
+    # books_df = _read_s3_files(spark, activation)
+    # books_df.printSchema()
+    # num_books = books_df.count()
+    # logging.info("Number of books: {0}".format(num_books))
 
     # pipeline = _setup_pipeline()
     # output = _segment_sentences(books_df, pipeline)
@@ -80,6 +92,74 @@ def main():
     # results.collect()
     # _write_to_es(output.rdd, es_write_conf)
 
+def get_s3_object(key):
+    bucket = 'jason-b'
+    obj = s3resource.Object(bucket, key)
+    object_body = obj.get()['Body'].read().decode('utf-8')
+    logging.info("OBJECT_BODY: " + object_body)
+    return object_body
+
+def _read_s3_file(filepath):
+    booksRDD = spark.sparkContext.wholeTextFiles(filepath, use_unicode=False)
+    # books_df = spark.createDataFrame(booksRDD, ["filepath", "rawDocument"])
+    return booksRDD.map(lambda x: x[1])
+
+
+def _set_env_vars():
+    # set environment variable PYSPARK_SUBMIT_ARGS
+    os.environ['PYSPARK_SUBMIT_ARGS'] = '--jars ../elasticsearch-hadoop-6.2.4/dist/elasticsearch-spark-20_2.11-6.2.4.jar pyspark-shell'
+
+
+def _list_s3_files(s3resource, filetype):
+    """ List all files in S3; can't call wholeTextFiles by folder because it will overload the driver
+    Need to call wholeTextFiles for each file and map to partition?
+    :param s3resource: boto3 S3 resource object
+    :param filetype: folder of S3 bucket
+    :returns: list of tuples containing key and file size in S3
+    """
+    bucket = s3resource.Bucket('jason-b')
+    fileslist = [(textfile.key, textfile.size) for textfile in bucket.objects.filter(Prefix=filetype)]
+    # fileslist.remove('txt/')
+    return fileslist
+
+
+def map_func(key):
+    # Use the key to read in the file contents, split on line endings
+    for line in key.get_contents_as_string().splitlines():
+        # parse one line of json
+        j = json.loads(line)
+        if "user_id" in j & "event" in j:
+            if j['event'] == "event_we_care_about":
+                yield j['user_id'], j['event']
+
+
+def _read_s3_files(spark, book_rdd):
+    s3_bucket = "s3a://jason-b"
+
+    # books_df = create_testbook_df(spark)
+    # books_df = books_df.union(book_rdd.toDF())
+
+    # for bookfile in fileslist:
+        # filepath = "{0}/{1}".format(s3_bucket, bookfile)
+        # next_book_df = _read_s3_file(spark, filepath)
+        # books_df = books_df.union(next_book_df)
+
+    books_df = books_df.select(
+            "filepath",
+            func.substring_index("filePath", '/', -1).alias("fileName"),
+            func.translate('rawDocument', '\n\r', '  ').alias("rawDocument")
+            )
+    return books_df
+
+
+def create_testbook_df(spark):
+    test_book = "Hi I heard about Spark. I wish Java\n\rcould use case classes. Logistic regression models are neat"
+    books_df = spark.createDataFrame(
+            [("999999", test_book)],
+            ["filepath", "rawDocument"]
+            )
+    return books_df
+
 
 def _udf_count_syllables_sentence(sentence):
     multisyllable_count = 0
@@ -111,129 +191,6 @@ def _count_syllables_word(word):
     # return len(word)
 
 
-def _read_es():
-    sc = SparkContext(appName="PythonSparkReading")
-    sc.setLogLevel("WARN")
-
-    es_read_conf = {
-            # node sending data to (should be the master)    
-            "es.nodes" : "localhost:9200",
-            # read resource in the format 'index/doc-type'
-            "es.resource" : "sentences/testdoctype"
-            }
-
-    es_rdd = sc.newAPIHadoopRDD(
-            inputFormatClass="org.elasticsearch.hadoop.mr.EsInputFormat",
-            keyClass="org.apache.hadoop.io.NullWritable",
-            valueClass="org.elasticsearch.hadoop.mr.LinkedMapWritable",
-            conf=es_read_conf
-            )
-
-    first_five = es_rdd.take(2)
-    print(first_five)
-    es_rdd = es_rdd.map(lambda x: x[1])
-    es_rdd.take(1)
-    sc.stop()
-
-def _format_data(x):
-    """ Make elasticsearch-hadoop compatible"""
-    # print(type(x))
-    data = json.loads(x)
-    # data['doc_id'] = data.pop('count')
-    test = (data['doc_id'], json.dumps(data))
-    return test
-    if os.path.isdir(folder):
-        shutil.rmtree(folder)
-    rdd.saveAsTextFile(folder)
-
-
-def _set_env_vars():
-    # set environment variable PYSPARK_SUBMIT_ARGS
-    os.environ['PYSPARK_SUBMIT_ARGS'] = '--jars ../elasticsearch-hadoop-6.2.4/dist/elasticsearch-spark-20_2.11-6.2.4.jar pyspark-shell'
-
-def _start_es():
-    es_cluster=["localhost:9200"]
-    es=Elasticsearch(es_cluster,http_auth=('elastic','changeme'))
-    if es.indices.exists('sentences'):
-        es.indices.delete('sentences')
-        es.indices.create('sentences')
-
-def _write_to_es(rdd, es_write_conf):
-    print(os.environ)
-    rdd.saveAsNewAPIHadoopFile(
-            path='-',
-            outputFormatClass="org.elasticsearch.hadoop.mr.EsOutputFormat",
-            keyClass="org.apache.hadoop.io.NullWritable",
-            valueClass="org.elasticsearch.hadoop.mr.LinkedMapWritable",
-            conf=es_write_conf
-            )
-
-def _set_es_conf():
-    es_write_conf = {
-            # node sending data to (this should be the master)
-            "es.nodes" : 'localhost',
-            "es.port" : '9200',
-            # specify a resource in the form 'index/doc-type'
-            "es.resource" : 'sentences/testdoctype',
-            "es.input.json" : "yes",
-            # field in mapping used to specify the ES document ID
-            "es.mapping.id": "doc_id"
-            }
-    return es_write_conf
-
-
-def _list_s3_files(s3resource, filetype):
-    bucket = s3resource.Bucket('jason-b')
-    fileslist = [textfile.key for textfile in bucket.objects.filter(Prefix=filetype)]
-
-    # fileslist = [textfile.key for textfile in bucket.objects.filter(Prefix=filetype)]
-    # fileslist.remove('txt/')
-    # fileslist.remove('txt//newvolume/ebooks/10442.txt')
-    # fileslist.remove('txt//newvolume/ebooks/15445.txt')
-    return fileslist
-
-def map_func(key):
-    # Use the key to read in the file contents, split on line endings
-    for line in key.get_contents_as_string().splitlines():
-        # parse one line of json
-        j = json.loads(line)
-        if "user_id" in j & "event" in j:
-            if j['event'] == "event_we_care_about":
-                yield j['user_id'], j['event']
-
-def _read_s3_files(spark, book_rdd):
-    s3_bucket = "s3a://jason-b"
-
-    # books_df = create_testbook_df(spark)
-    # books_df = books_df.union(book_rdd.toDF())
-
-    # for bookfile in fileslist:
-        # filepath = "{0}/{1}".format(s3_bucket, bookfile)
-        # next_book_df = _read_s3_file(spark, filepath)
-        # books_df = books_df.union(next_book_df)
-
-    books_df = books_df.select(
-            "filepath",
-            func.substring_index("filePath", '/', -1).alias("fileName"),
-            func.translate('rawDocument', '\n\r', '  ').alias("rawDocument")
-            )
-    return books_df
-
-
-def create_testbook_df(spark):
-    test_book = "Hi I heard about Spark. I wish Java\n\rcould use case classes. Logistic regression models are neat"
-    books_df = spark.createDataFrame(
-            [("999999", test_book)],
-            ["filepath", "rawDocument"]
-            )
-    return books_df
-
-
-def _read_s3_file(filepath):
-    booksRDD = spark.sparkContext.wholeTextFiles(filepath, use_unicode=False)
-    books_df = spark.createDataFrame(booksRDD, ["filepath", "rawDocument"])
-    return booksRDD
-
 def _setup_pipeline():
     document_assembler = DocumentAssembler().setInputCol("rawDocument").setOutputCol("document").setIdCol("fileName")
     sentence_detector = SentenceDetector().setInputCols(["document"]).setOutputCol("sentence")
@@ -263,6 +220,78 @@ def _sentiment_analysis(data, pipeline):
     model = pipeline.fit(data)
     result = model.transform(data)
     return result
+
+
+def _format_data(x):
+    """ Make elasticsearch-hadoop compatible"""
+    data = json.loads(x)
+    # data['doc_id'] = data.pop('count')
+    test = (data['doc_id'], json.dumps(data))
+    return test
+
+
+def _write_rdd_textfile(rdd, folder):
+    if os.path.isdir(folder):
+        shutil.rmtree(folder)
+    rdd.saveAsTextFile(folder)
+
+
+def _start_es():
+    es_cluster=["localhost:9200"]
+    es=Elasticsearch(es_cluster,http_auth=('elastic','changeme'))
+    if es.indices.exists('sentences'):
+        es.indices.delete('sentences')
+        es.indices.create('sentences')
+
+
+def _write_to_es(rdd, es_write_conf):
+    print(os.environ)
+    rdd.saveAsNewAPIHadoopFile(
+            path='-',
+            outputFormatClass="org.elasticsearch.hadoop.mr.EsOutputFormat",
+            keyClass="org.apache.hadoop.io.NullWritable",
+            valueClass="org.elasticsearch.hadoop.mr.LinkedMapWritable",
+            conf=es_write_conf
+            )
+
+
+def _set_es_conf():
+    es_write_conf = {
+            # node sending data to (this should be the master)
+            "es.nodes" : 'localhost',
+            "es.port" : '9200',
+            # specify a resource in the form 'index/doc-type'
+            "es.resource" : 'sentences/testdoctype',
+            "es.input.json" : "yes",
+            # field in mapping used to specify the ES document ID
+            "es.mapping.id": "doc_id"
+            }
+    return es_write_conf
+
+
+def _read_es():
+    sc = SparkContext(appName="PythonSparkReading")
+    sc.setLogLevel("WARN")
+
+    es_read_conf = {
+            # node sending data to (should be the master)    
+            "es.nodes" : "localhost:9200",
+            # read resource in the format 'index/doc-type'
+            "es.resource" : "sentences/testdoctype"
+            }
+
+    es_rdd = sc.newAPIHadoopRDD(
+            inputFormatClass="org.elasticsearch.hadoop.mr.EsInputFormat",
+            keyClass="org.apache.hadoop.io.NullWritable",
+            valueClass="org.elasticsearch.hadoop.mr.LinkedMapWritable",
+            conf=es_read_conf
+            )
+
+    first_five = es_rdd.take(2)
+    print(first_five)
+    es_rdd = es_rdd.map(lambda x: x[1])
+    es_rdd.take(1)
+    sc.stop()
 
 
 if __name__ == '__main__':
