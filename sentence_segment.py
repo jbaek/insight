@@ -8,7 +8,6 @@ import json
 import random
 import logging
 import boto3
-from boto.s3.connection import S3Connection
 
 sys.path.extend(glob.glob(os.path.join(os.path.expanduser("~"), ".ivy2/jars/*.jar")))
 from sparknlp.base import DocumentAssembler, Finisher
@@ -26,7 +25,7 @@ def _start_spark():
     """ create and configure SparkSession; for SparkSQL
     :returns: SparkSession object
     """
-    spark = SparkSession.builder.appName("ner").master("local[1]").config("spark.driver.memory","8G").config("spark.driver.maxResultSize", "2G").config("spark.jar", "lib/sparknlp.jar").config("spark.kryoserializer.buffer.max", "500m").getOrCreate()
+    spark = SparkSession.builder.appName("ner").master("spark://ip-10-0-0-5.us-west-2.compute.internal:7077").config("spark.driver.memory","8G").config("spark.driver.maxResultSize", "2G").config("spark.jar", "lib/sparknlp.jar").config("spark.kryoserializer.buffer.max", "500m").getOrCreate()
     return spark
 
 TEXT_FOLDER = 'txt'
@@ -45,13 +44,14 @@ def main():
 
     _set_env_vars()
 
-    keys = _list_s3_files(s3resource, filetype=TEXT_FOLDER, numrows=20)
+    keys = _list_s3_files(s3resource, filetype=TEXT_FOLDER, numrows=100)
     pkeys = spark.sparkContext.parallelize(keys, numSlices=3)
-    _write_rdd_textfile(pkeys, 'txt/keys')
+    logging.info(json.dumps(pkeys.collect(), indent=4))
     pbooks = pkeys.flatMap(map_func)
     logging.info("Number of partitions: {0}".format(pbooks.getNumPartitions()))
-    _write_rdd_textfile(pbooks, 'txt/books')
-    logging.info(len(pbooks.collect()))
+    collected_books = pbooks.map(lambda x: x[:100]).collect()
+    logging.info(len(collected_books))
+    logging.info(json.dumps(collected_books, indent=4))
 
     # testing_rdd = spark.sparkContext.wholeTextFiles("s3a://jason-b/{0}".format(TEXT_FOLDER), minPartitions=6, use_unicode=False)
 
