@@ -29,45 +29,29 @@ def _start_spark():
     spark = SparkSession.builder.appName("ner").master("local[1]").config("spark.driver.memory","8G").config("spark.driver.maxResultSize", "2G").config("spark.jar", "lib/sparknlp.jar").config("spark.kryoserializer.buffer.max", "500m").getOrCreate()
     return spark
 
-TEXT_FOLDER = 'testing'
+TEXT_FOLDER = 'txt'
 s3_bucket = "s3a://jason-b"
 
 spark = _start_spark()
 s3resource = boto3.resource('s3')
 
-def map_func(key):
-    bucket = 'jason-b'
-    obj = s3resource.Object(bucket, key)
-    booktext = obj.get()['Body'].read().decode('utf-8')
-    return booktext
 
-def test_map_func(key):
+def map_func(key):
     s3_client = boto3.client('s3')
-    # key = u'testing/10897.txt'
-    text = boto3.client('s3').get_object(Bucket="jason-b", Key=key)['Body'].read().decode('utf-8')
+    text = boto3.client('s3').get_object(Bucket="jason-b", Key=key)['Body'].read().decode('utf-8').replace("\n", " ")
     yield text
 
 def main():
 
     _set_env_vars()
 
-    keys = _list_s3_files(s3resource, filetype=TEXT_FOLDER)
-    with open('test_keys.txt', 'w') as keysfile:
-        keysfile.write(json.dumps(keys, indent=4))
-    keys.remove('testing/')
-    logging.info(keys)
-
-    # keys = ['testing/10897.txt']
+    keys = _list_s3_files(s3resource, filetype=TEXT_FOLDER, numrows=20)
     pkeys = spark.sparkContext.parallelize(keys, numSlices=3)
     _write_rdd_textfile(pkeys, 'txt/keys')
-    logging.info(type(pkeys))
-    pbooks = pkeys.flatMap(test_map_func)
-    logging.info(type(pbooks))
+    pbooks = pkeys.flatMap(map_func)
     logging.info("Number of partitions: {0}".format(pbooks.getNumPartitions()))
     _write_rdd_textfile(pbooks, 'txt/books')
-    # collected_books = pbooks.collect()
-    # logging.info(collected_books[:][:100])
-    # logging.info(len(collected_books))
+    logging.info(len(pbooks.collect()))
 
     # testing_rdd = spark.sparkContext.wholeTextFiles("s3a://jason-b/{0}".format(TEXT_FOLDER), minPartitions=6, use_unicode=False)
 
@@ -149,7 +133,7 @@ def _set_env_vars():
     os.environ['PYSPARK_SUBMIT_ARGS'] = '--jars ../elasticsearch-hadoop-6.2.4/dist/elasticsearch-spark-20_2.11-6.2.4.jar pyspark-shell'
 
 
-def _list_s3_files(s3resource, filetype):
+def _list_s3_files(s3resource, filetype, numrows):
     """ List all files in S3; can't call wholeTextFiles by folder because it will overload the driver
     Need to call wholeTextFiles for each file and map to partition?
     :param s3resource: boto3 S3 resource object
@@ -157,9 +141,12 @@ def _list_s3_files(s3resource, filetype):
     :returns: list of tuples containing key and file size in S3
     """
     bucket = s3resource.Bucket('jason-b')
-    # , textfile.size)
     fileslist = [textfile.key for textfile in bucket.objects.filter(Prefix=filetype)]
-    # fileslist.remove('txt/')
+    fileslist.remove('{0}/'.format(TEXT_FOLDER))
+    fileslist = fileslist[:numrows]
+    logging.info(fileslist)
+    with open('keyslist.txt', 'w') as keysfile:
+        keysfile.write(json.dumps(fileslist, indent=4))
     return fileslist
 
 
