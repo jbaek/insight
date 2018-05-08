@@ -21,8 +21,6 @@ from pyspark.ml import Pipeline
 from pyspark import SparkContext
 from elasticsearch import Elasticsearch
 
-TEXT_FOLDER = 'testing'
-s3_bucket = "s3a://jason-b"
 
 def _start_spark():
     """ create and configure SparkSession; for SparkSQL
@@ -31,49 +29,77 @@ def _start_spark():
     spark = SparkSession.builder.appName("ner").master("local[1]").config("spark.driver.memory","8G").config("spark.driver.maxResultSize", "2G").config("spark.jar", "lib/sparknlp.jar").config("spark.kryoserializer.buffer.max", "500m").getOrCreate()
     return spark
 
-spark = _start_spark()
+TEXT_FOLDER = 'testing'
+s3_bucket = "s3a://jason-b"
 
+spark = _start_spark()
 s3resource = boto3.resource('s3')
+
+def map_func(key):
+    bucket = 'jason-b'
+    obj = s3resource.Object(bucket, key)
+    booktext = obj.get()['Body'].read().decode('utf-8')
+    return booktext
+
+def test_map_func(key):
+    s3_client = boto3.client('s3')
+    # key = u'testing/10897.txt'
+    text = boto3.client('s3').get_object(Bucket="jason-b", Key=key)['Body'].read().decode('utf-8')
+    yield text
 
 def main():
 
     _set_env_vars()
-    testing_rdd = spark.sparkContext.wholeTextFiles("s3a://jason-b/{0}".format(TEXT_FOLDER), minPartitions=6, use_unicode=False)
-    logging.info("Number of partitions: {0}".format(testing_rdd.getNumPartitions()))
 
-    books_df = rdd_to_df(spark, testing_rdd)
-    books_df.printSchema()
-    # num_books = books_df.count()
-    # logging.info("Number of books: {0}".format(num_books))
+    keys = _list_s3_files(s3resource, filetype=TEXT_FOLDER)
+    with open('test_keys.txt', 'w') as keysfile:
+        keysfile.write(json.dumps(keys, indent=4))
+    keys.remove('testing/')
+    logging.info(keys)
 
-    pipeline = _setup_pipeline()
-    output = _segment_sentences(books_df, pipeline)
-    output.printSchema()
-    # _write_rdd_textfile(output.rdd, 'txt/books')
+    # keys = ['testing/10897.txt']
+    pkeys = spark.sparkContext.parallelize(keys, numSlices=3)
+    _write_rdd_textfile(pkeys, 'txt/keys')
+    logging.info(type(pkeys))
+    pbooks = pkeys.flatMap(test_map_func)
+    logging.info(type(pbooks))
+    logging.info("Number of partitions: {0}".format(pbooks.getNumPartitions()))
+    _write_rdd_textfile(pbooks, 'txt/books')
+    # collected_books = pbooks.collect()
+    # logging.info(collected_books[:][:100])
+    # logging.info(len(collected_books))
 
-    count_syllables = func.udf(lambda s: _udf_count_syllables_sentence(s), IntegerType())
-    exploded = output.select(
-            func.monotonically_increasing_id().alias("doc_id"),
-            "fileName",
-            func.size("sentence.result").alias("sentenceCount"),
-            func.explode("sentence.result").alias("sentence")
-            )
-    exploded = exploded.select(
-            "doc_id",
-            "fileName",
-            "sentenceCount",
-            count_syllables("sentence").alias('syllableCount'),
-            "sentence"
-            )
-    exploded.show(20, False)
-    exploded.printSchema()
+    # testing_rdd = spark.sparkContext.wholeTextFiles("s3a://jason-b/{0}".format(TEXT_FOLDER), minPartitions=6, use_unicode=False)
+
+    # books_df = rdd_to_df(spark, testing_rdd)
+    # books_df.printSchema()
+    # # num_books = books_df.count()
+    # # logging.info("Number of books: {0}".format(num_books))
+
+    # pipeline = _setup_pipeline()
+    # output = _segment_sentences(books_df, pipeline)
+    # output.printSchema()
+
+    # count_syllables = func.udf(lambda s: _udf_count_syllables_sentence(s), IntegerType())
+    # exploded = output.select(
+            # func.monotonically_increasing_id().alias("doc_id"),
+            # "fileName",
+            # func.size("sentence.result").alias("sentenceCount"),
+            # func.explode("sentence.result").alias("sentence")
+            # )
+    # exploded = exploded.select(
+            # "doc_id",
+            # "fileName",
+            # "sentenceCount",
+            # count_syllables("sentence").alias('syllableCount'),
+            # "sentence"
+            # )
+    # exploded.show(20, False)
+    # exploded.printSchema()
 
     # _write_rdd_textfile(exploded.rdd, 'txt/sentence')
     # exploded.groupby("doc_id").count().show()
 
-    # keys = _list_s3_files(s3resource, filetype=TEXT_FOLDER)
-    # with open('test_keys.txt', 'w') as keysfile:
-        # keysfile.write(json.dumps(keys, indent=4))
     # # If the partitions are imbalanced, try to repartition
     # parallel_keys = spark.sparkContext.parallelize(keys, numSlices=3)
     # # activation = parallel_keys.map(lambda x: (x, x[0])) # _read_s3_file(x[0]))
@@ -131,7 +157,8 @@ def _list_s3_files(s3resource, filetype):
     :returns: list of tuples containing key and file size in S3
     """
     bucket = s3resource.Bucket('jason-b')
-    fileslist = [(textfile.key, textfile.size) for textfile in bucket.objects.filter(Prefix=filetype)]
+    # , textfile.size)
+    fileslist = [textfile.key for textfile in bucket.objects.filter(Prefix=filetype)]
     # fileslist.remove('txt/')
     return fileslist
 
@@ -294,7 +321,7 @@ def _read_es():
 
 if __name__ == '__main__':
     FORMAT = "[%(filename)s:%(lineno)s - %(funcName)20s() ] %(message)s"
-    logging.basicConfig(filename="log/sentence_segment.log", format=FORMAT, level=logging.INFO)
+    logging.basicConfig(filename="log/sentence_segment.log", format=FORMAT, level=logging.INFO, filemode = 'w')
     start_time = time.time()
     main()
     end_time = time.time()
