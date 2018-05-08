@@ -38,40 +38,53 @@ s3resource = boto3.resource('s3')
 def main():
 
     _set_env_vars()
-    keys = _list_s3_files(s3resource, filetype=TEXT_FOLDER)
-    with open('test_keys.txt', 'w') as keysfile:
-        keysfile.write(json.dumps(keys, indent=4))
-    # If the partitions are imbalanced, try to repartition
-    parallel_keys = spark.sparkContext.parallelize(keys, numSlices=3)
-    # activation = parallel_keys.map(lambda x: (x, x[0])) # _read_s3_file(x[0]))
-    activation = parallel_keys.map(lambda x: x[0].replace('testing/', ''))
-    _write_rdd_textfile(activation, 'txt/books')
-    s3_obj = activation.map(lambda x: get_s3_object(x))
-    _write_rdd_textfile(s3_obj, 'txt/objects')
-    # logging.info([x for x in activation.first()])
+    testing_rdd = spark.sparkContext.wholeTextFiles("s3a://jason-b/{0}".format(TEXT_FOLDER), minPartitions=6, use_unicode=False)
+    logging.info("Number of partitions: {0}".format(testing_rdd.getNumPartitions()))
 
-    # testRDD = spark.sparkContext.wholeTextFiles("s3a://jason-b/testing/Charles Dickens___David Copperfield.txt", use_unicode=False)
-
-    # books_df = _read_s3_files(spark, activation)
-    # books_df.printSchema()
+    books_df = rdd_to_df(spark, testing_rdd)
+    books_df.printSchema()
     # num_books = books_df.count()
     # logging.info("Number of books: {0}".format(num_books))
 
-    # pipeline = _setup_pipeline()
-    # output = _segment_sentences(books_df, pipeline)
+    pipeline = _setup_pipeline()
+    output = _segment_sentences(books_df, pipeline)
+    output.printSchema()
     # _write_rdd_textfile(output.rdd, 'txt/books')
+
+    count_syllables = func.udf(lambda s: _udf_count_syllables_sentence(s), IntegerType())
+    exploded = output.select(
+            func.monotonically_increasing_id().alias("doc_id"),
+            "fileName",
+            func.size("sentence.result").alias("sentenceCount"),
+            func.explode("sentence.result").alias("sentence")
+            )
+    exploded = exploded.select(
+            "doc_id",
+            "fileName",
+            "sentenceCount",
+            count_syllables("sentence").alias('syllableCount'),
+            "sentence"
+            )
+    exploded.show(20, False)
+    exploded.printSchema()
+
+    # _write_rdd_textfile(exploded.rdd, 'txt/sentence')
+    # exploded.groupby("doc_id").count().show()
+
+    # keys = _list_s3_files(s3resource, filetype=TEXT_FOLDER)
+    # with open('test_keys.txt', 'w') as keysfile:
+        # keysfile.write(json.dumps(keys, indent=4))
+    # # If the partitions are imbalanced, try to repartition
+    # parallel_keys = spark.sparkContext.parallelize(keys, numSlices=3)
+    # # activation = parallel_keys.map(lambda x: (x, x[0])) # _read_s3_file(x[0]))
+    # activation = parallel_keys.map(lambda x: x[0].replace('testing/', ''))
+    # s3_obj = activation.map(lambda x: get_s3_object(x))
+    # logging.info([x for x in activation.first()])
 
     # pipeline = _setup_sentiment_pipeline()
     # output = _sentiment_analysis(sentence_data, pipeline)
     # _write_rdd_textfile(output.rdd, 'txt/sentiment')
 
-    # count_syllables = func.udf(lambda s: _udf_count_syllables_sentence(s), IntegerType())
-    # exploded = output.select(func.monotonically_increasing_id().alias("doc_id"), func.size("sentence.result").alias("sentenceCount"), func.explode("sentence.result").alias("sentence"))
-    # exploded = exploded.select("doc_id", "sentenceCount", count_syllables("sentence").alias('syllableCount'), "sentence")
-    # exploded.show(20, False)
-
-    # _write_rdd_textfile(exploded.rdd, 'txt/sentence')
-    # exploded.groupby("doc_id").count().show()
 
     # sentence = output.select(["doc_id", "sentence"]).toJSON()
     # _write_rdd_textfile(sentence, 'txt/sentence')
@@ -123,26 +136,11 @@ def _list_s3_files(s3resource, filetype):
     return fileslist
 
 
-def map_func(key):
-    # Use the key to read in the file contents, split on line endings
-    for line in key.get_contents_as_string().splitlines():
-        # parse one line of json
-        j = json.loads(line)
-        if "user_id" in j & "event" in j:
-            if j['event'] == "event_we_care_about":
-                yield j['user_id'], j['event']
+def rdd_to_df(spark, books_rdd):
 
-
-def _read_s3_files(spark, book_rdd):
-    s3_bucket = "s3a://jason-b"
-
-    # books_df = create_testbook_df(spark)
-    # books_df = books_df.union(book_rdd.toDF())
-
-    # for bookfile in fileslist:
-        # filepath = "{0}/{1}".format(s3_bucket, bookfile)
-        # next_book_df = _read_s3_file(spark, filepath)
-        # books_df = books_df.union(next_book_df)
+    books_df = spark.createDataFrame(books_rdd)
+    testbook_df = create_testbook_df(spark)
+    books_df = testbook_df.union(books_df)
 
     books_df = books_df.select(
             "filepath",
@@ -194,13 +192,13 @@ def _count_syllables_word(word):
 def _setup_pipeline():
     document_assembler = DocumentAssembler().setInputCol("rawDocument").setOutputCol("document").setIdCol("fileName")
     sentence_detector = SentenceDetector().setInputCols(["document"]).setOutputCol("sentence")
-    # tokenizer = Tokenizer().setInputCols(["sentence"]).setOutputCol("token")
+    tokenizer = Tokenizer().setInputCols(["sentence"]).setOutputCol("token")
     pipeline = Pipeline().setStages([document_assembler, sentence_detector])
     return pipeline
 
 
-def _segment_sentences(sentence_data, pipeline):
-    output = pipeline.fit(sentence_data).transform(sentence_data)
+def _segment_sentences(books_df, pipeline):
+    output = pipeline.fit(books_df).transform(books_df)
     return output
 
 
