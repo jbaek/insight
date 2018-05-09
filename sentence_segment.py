@@ -15,7 +15,7 @@ from sparknlp.annotator import SentenceDetector, Tokenizer, Lemmatizer, Sentimen
 from sparknlp.common import *
 import pyspark.sql.functions as func
 from pyspark.sql import SparkSession
-from pyspark.sql.types import IntegerType
+from pyspark.sql.types import IntegerType, ArrayType
 from pyspark.ml import Pipeline
 from pyspark import SparkContext
 from elasticsearch import Elasticsearch
@@ -25,11 +25,19 @@ def _start_spark():
     """ create and configure SparkSession; for SparkSQL
     :returns: SparkSession object
     """
-    spark = SparkSession.builder.appName("ner").master("spark://ip-10-0-0-5.us-west-2.compute.internal:7077").config("spark.driver.memory","8G").config("spark.driver.maxResultSize", "2G").config("spark.executor.memory", "5G").config("spark.jar", "lib/sparknlp.jar").config("spark.kryoserializer.buffer.max", "500m").getOrCreate()
+    spark = SparkSession.builder.appName("readerApp") \
+            .master("spark://ip-10-0-0-5.us-west-2.compute.internal:7077") \
+            .config("spark.driver.memory","8G") \
+            .config("spark.driver.maxResultSize", "2G") \
+            .config("spark.executor.memory", "6G") \
+            .config("spark.jar", "lib/sparknlp.jar") \
+            .config("spark.kryoserializer.buffer.max", "500m") \
+            .getOrCreate()
     return spark
 
 TEXT_FOLDER = 'txt'
 s3_bucket = "s3a://jason-b"
+NUM_PARTITIONS = 6
 
 spark = _start_spark()
 s3resource = boto3.resource('s3')
@@ -39,7 +47,11 @@ def main():
 
     _set_env_vars()
 
-    keys = _list_s3_files(s3resource, filetype=TEXT_FOLDER, numrows=10)
+    keys = _list_s3_files(
+            s3resource,
+            filetype=TEXT_FOLDER,
+            numrows=3
+            )
     # testing_rdd = spark.sparkContext.wholeTextFiles("s3a://jason-b/{0}".format(TEXT_FOLDER), minPartitions=6, use_unicode=False)
     pbooks = s3_to_rdd(spark, keys)
     log_rdd(pbooks)
@@ -47,26 +59,34 @@ def main():
     pipeline = _setup_pipeline()
     output = _segment_sentences(pbooks, pipeline)
 
-    count_syllables = func.udf(lambda s: _udf_count_syllables_sentence(s), IntegerType())
-    count_syllables = func.udf(lambda t: _udf_test(t), IntegerType())
+    count_syllables_udf = func.udf(
+            lambda s: _udf_count_syllables_sentence(s),
+            ArrayType(IntegerType())
+            )
+    token_lengths_udf = func.udf(
+            lambda arr: token_length(arr),
+            ArrayType(IntegerType())
+            )
 
     exploded = output.select(
             func.monotonically_increasing_id().alias("doc_id"),
             "fileName",
             func.size("sentence.result").alias("numSentencesInBook"),
-            func.explode("sentence.result").alias("sentenceText")
+            func.explode("sentence.result").alias("sentenceText"),
+            "token",
+            # token_lengths_udf('token.result').alias("tokenLengths")
+            count_syllables_udf('token.result').alias("syllableCounts")
             )
-    # logging.info(json.dumps(exploded.take(20), indent=4))
 
-    exploded = exploded.select(
-            "doc_id",
-            "fileName",
-            "numSentencesInBook",
-            count_syllables("sentenceText").alias('syllableCount'),
-            "sentenceText"
-            )
+    # exploded = exploded.select(
+            # "doc_id",
+            # "fileName",
+            # "numSentencesInBook",
+            # count_syllables("sentenceText").alias('syllableCount'),
+            # "sentenceText"
+            # )
     exploded.printSchema()
-    logging.info(json.dumps(exploded.take(20), indent=4))
+    # _write_rdd_textfile(exploded.rdd, 'txt/exploded')
 
     # exploded.groupby("doc_id").count().show()
 
@@ -102,6 +122,41 @@ def main():
     # _write_to_es(output.rdd, es_write_conf)
 
 
+def token_length(token_array):
+    return [len(x) for x in token_array]
+
+
+def _udf_count_syllables_sentence(token_array):
+    return [_count_syllables_word(word) for word in token_array]
+    # multisyllable_count = 0
+    # for word in token_array:
+        # if _count_syllables_word(word) > 1:
+            # multisyllable_count += 1
+    # return multisyllable_count
+
+
+def _count_syllables_word(word):
+    vowels = "aeiouy"
+    numVowels = 0
+    lastWasVowel = False
+    for wc in word:
+        foundVowel = False
+        for v in vowels:
+            if v == wc:
+                if not lastWasVowel:
+                    numVowels+=1   #don't count diphthongs
+                foundVowel = lastWasVowel = True
+                break
+        if not foundVowel:  #If full cycle and no vowel found, set lastWasVowel to false
+            lastWasVowel = False
+    if len(word) > 2 and word[-2:] == "es": #Remove es - it's "usually" silent (?)
+        numVowels-=1
+    elif len(word) > 1 and word[-1:] == "e":    #remove silent e
+        numVowels-=1
+    return numVowels
+    # return len(word)
+
+
 def map_func(key):
     s3_client = boto3.client('s3')
     text = boto3.client('s3').get_object(Bucket="jason-b", Key=key)['Body'].read().decode('utf-8').replace("\n", " ")
@@ -109,7 +164,7 @@ def map_func(key):
 
 
 def s3_to_rdd(spark, keys):
-    pkeys = spark.sparkContext.parallelize(keys, numSlices=3)
+    pkeys = spark.sparkContext.parallelize(keys, numSlices=NUM_PARTITIONS)
     logging.info(json.dumps(pkeys.collect(), indent=4))
     pbooks = pkeys.flatMap(map_func)
     logging.info("Number of partitions: {0}".format(pbooks.getNumPartitions()))
@@ -180,45 +235,11 @@ def create_testbook_df(spark):
     return books_df
 
 
-def _udf_test(sentence):
-    return len(sentence)
-
-
-def _udf_count_syllables_sentence(sentence):
-    multisyllable_count = 0
-    for word in sentence.split(' '):
-        if _count_syllables_word(word) > 1:
-            multisyllable_count += 1
-    return multisyllable_count
-
-
-def _count_syllables_word(word):
-    vowels = "aeiouy"
-    numVowels = 0
-    lastWasVowel = False
-    for wc in word:
-        foundVowel = False
-        for v in vowels:
-            if v == wc:
-                if not lastWasVowel:
-                    numVowels+=1   #don't count diphthongs
-                foundVowel = lastWasVowel = True
-                break
-        if not foundVowel:  #If full cycle and no vowel found, set lastWasVowel to false
-            lastWasVowel = False
-    if len(word) > 2 and word[-2:] == "es": #Remove es - it's "usually" silent (?)
-        numVowels-=1
-    elif len(word) > 1 and word[-1:] == "e":    #remove silent e
-        numVowels-=1
-    return numVowels
-    # return len(word)
-
-
 def _setup_pipeline():
     document_assembler = DocumentAssembler().setInputCol("rawDocument").setOutputCol("document").setIdCol("fileName")
     sentence_detector = SentenceDetector().setInputCols(["document"]).setOutputCol("sentence")
     tokenizer = Tokenizer().setInputCols(["sentence"]).setOutputCol("token")
-    pipeline = Pipeline().setStages([document_assembler, sentence_detector])
+    pipeline = Pipeline().setStages([document_assembler, sentence_detector, tokenizer])
     return pipeline
 
 
