@@ -35,53 +35,39 @@ spark = _start_spark()
 s3resource = boto3.resource('s3')
 
 
-def map_func(key):
-    s3_client = boto3.client('s3')
-    text = boto3.client('s3').get_object(Bucket="jason-b", Key=key)['Body'].read().decode('utf-8').replace("\n", " ")
-    yield text
-
 def main():
 
     _set_env_vars()
 
-    keys = _list_s3_files(s3resource, filetype=TEXT_FOLDER, numrows=54000)
-    pkeys = spark.sparkContext.parallelize(keys, numSlices=3)
-    logging.info(json.dumps(pkeys.collect(), indent=4))
-    pbooks = pkeys.flatMap(map_func)
-    logging.info("Number of partitions: {0}".format(pbooks.getNumPartitions()))
-    collected_books = pbooks.map(lambda x: x[:150]).collect()
-    logging.info("Num Books: {0}".format(len(collected_books)))
-    logging.info(json.dumps(collected_books[:5], indent=4))
-
+    keys = _list_s3_files(s3resource, filetype=TEXT_FOLDER, numrows=10)
     # testing_rdd = spark.sparkContext.wholeTextFiles("s3a://jason-b/{0}".format(TEXT_FOLDER), minPartitions=6, use_unicode=False)
+    pbooks = s3_to_rdd(spark, keys)
+    log_rdd(pbooks)
 
-    # books_df = rdd_to_df(spark, testing_rdd)
-    # books_df.printSchema()
-    # # num_books = books_df.count()
-    # # logging.info("Number of books: {0}".format(num_books))
+    pipeline = _setup_pipeline()
+    output = _segment_sentences(pbooks, pipeline)
 
-    # pipeline = _setup_pipeline()
-    # output = _segment_sentences(books_df, pipeline)
-    # output.printSchema()
+    count_syllables = func.udf(lambda s: _udf_count_syllables_sentence(s), IntegerType())
+    count_syllables = func.udf(lambda t: _udf_test(t), IntegerType())
 
-    # count_syllables = func.udf(lambda s: _udf_count_syllables_sentence(s), IntegerType())
-    # exploded = output.select(
-            # func.monotonically_increasing_id().alias("doc_id"),
-            # "fileName",
-            # func.size("sentence.result").alias("sentenceCount"),
-            # func.explode("sentence.result").alias("sentence")
-            # )
-    # exploded = exploded.select(
-            # "doc_id",
-            # "fileName",
-            # "sentenceCount",
-            # count_syllables("sentence").alias('syllableCount'),
-            # "sentence"
-            # )
-    # exploded.show(20, False)
-    # exploded.printSchema()
+    exploded = output.select(
+            func.monotonically_increasing_id().alias("doc_id"),
+            "fileName",
+            func.size("sentence.result").alias("numSentencesInBook"),
+            func.explode("sentence.result").alias("sentenceText")
+            )
+    # logging.info(json.dumps(exploded.take(20), indent=4))
 
-    # _write_rdd_textfile(exploded.rdd, 'txt/sentence')
+    exploded = exploded.select(
+            "doc_id",
+            "fileName",
+            "numSentencesInBook",
+            count_syllables("sentenceText").alias('syllableCount'),
+            "sentenceText"
+            )
+    exploded.printSchema()
+    logging.info(json.dumps(exploded.take(20), indent=4))
+
     # exploded.groupby("doc_id").count().show()
 
     # # If the partitions are imbalanced, try to repartition
@@ -104,7 +90,7 @@ def main():
     # es_write_conf = _set_es_conf()
     # exploded = exploded.toJSON().map(lambda x: _format_data(x))
     # _write_to_es(exploded, es_write_conf)
-    # spark.stop()
+    spark.stop()
 
     # _read_es()
     # sentences = sentence.rdd.map(lambda s: s.sentence[0].result)
@@ -114,6 +100,27 @@ def main():
 
     # results.collect()
     # _write_to_es(output.rdd, es_write_conf)
+
+
+def map_func(key):
+    s3_client = boto3.client('s3')
+    text = boto3.client('s3').get_object(Bucket="jason-b", Key=key)['Body'].read().decode('utf-8').replace("\n", " ")
+    yield (key, text)
+
+
+def s3_to_rdd(spark, keys):
+    pkeys = spark.sparkContext.parallelize(keys, numSlices=3)
+    logging.info(json.dumps(pkeys.collect(), indent=4))
+    pbooks = pkeys.flatMap(map_func)
+    logging.info("Number of partitions: {0}".format(pbooks.getNumPartitions()))
+    return pbooks
+
+def log_rdd(pbooks):
+    collected_books = pbooks.map(lambda x: x[1][:150]).collect()
+    logging.info("Num Books: {0}".format(len(collected_books)))
+    logging.info(json.dumps(collected_books[:5], indent=4))
+    logging.info(pbooks.map(lambda y: y[0]).collect())
+
 
 def get_s3_object(key):
     bucket = 'jason-b'
@@ -173,6 +180,10 @@ def create_testbook_df(spark):
     return books_df
 
 
+def _udf_test(sentence):
+    return len(sentence)
+
+
 def _udf_count_syllables_sentence(sentence):
     multisyllable_count = 0
     for word in sentence.split(' '):
@@ -211,7 +222,8 @@ def _setup_pipeline():
     return pipeline
 
 
-def _segment_sentences(books_df, pipeline):
+def _segment_sentences(books_rdd, pipeline):
+    books_df = spark.createDataFrame(books_rdd, ["fileName", "rawDocument"])
     output = pipeline.fit(books_df).transform(books_df)
     return output
 
