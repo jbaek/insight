@@ -42,7 +42,7 @@ spark = _start_spark()
 
 def _start_es():
     es=Elasticsearch(
-            'localhost:9200',
+            'ip-10-0-0-8:9200',
             http_auth=(env['ES_USER'], env['ES_PASS'])
             )
     if es.indices.exists('books'):
@@ -52,7 +52,7 @@ def _start_es():
 def _set_es_conf(spark):
     es_write_conf = {
             # node sending data to (this should be the master)
-            "es.nodes" : 'localhost',
+            "es.nodes" : 'ip-10-0-0-8',
             "es.port" : '9200',
             # specify a resource in the form 'index/doc-type'
             "es.resource" : 'books/sentences',

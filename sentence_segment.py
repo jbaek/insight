@@ -314,7 +314,7 @@ def _set_es_conf(spark):
             # "es.nodes.wan.only": 'yes',
             # "es.nodes.discovery": 'false',
             # 'es.nodes'     : os_env['ES_IP'],
-            "es.nodes" : 'ip-10-0-0-5',
+            "es.nodes" : 'ip-10-0-0-8',
             "es.port" : '9200',
             # specify a resource in the form 'index/doc-type'
             "es.resource" : 'books/sentences',
