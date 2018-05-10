@@ -74,18 +74,18 @@ def main():
             lambda arr: token_length(arr),
             ArrayType(IntegerType())
             )
-    output = output.select(
-            func.monotonically_increasing_id().alias("doc_id"),
-            "fileName"
-            )
     # output = output.select(
             # func.monotonically_increasing_id().alias("doc_id"),
-            # "fileName",
-            # func.size("sentence.result").alias("numSentencesInBook"),
-            # func.explode("sentence.result").alias("sentenceText"),
-            # "token",
-            # # token_lengths_udf('token.result').alias("tokenLengths")
+            # "fileName"
             # )
+    output = output.select(
+            func.monotonically_increasing_id().alias("doc_id"),
+            "fileName",
+            func.size("sentence.result").alias("numSentencesInBook"),
+            func.explode("sentence.result").alias("sentenceText"),
+            # "token",
+            # token_lengths_udf('token.result').alias("tokenLengths")
+            )
     # output = output.select(
             # "doc_id",
             # "fileName",
@@ -117,6 +117,7 @@ def main():
 
     # Write to ES
     output = output.toJSON().map(lambda x: _format_data(x))
+    # output = output.rdd.map(lambda x: (x[0], x.k  
     _write_to_es(output, es_write_conf)
     spark.stop()
 
@@ -282,7 +283,7 @@ def _write_rdd_textfile(rdd, folder):
 
 def _format_data(x):
     """ Make elasticsearch-hadoop compatible"""
-    data = json.loads(x) 
+    data = json.loads(x)
     test = (data['doc_id'], json.dumps(data))
     return test
 

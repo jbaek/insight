@@ -19,7 +19,7 @@ with open('from_es.txt', 'w') as the_file:
     the_file.write(json.dumps(res, indent=4))
 
 books = res.get('hits').get('hits')
-for book in books:
+for book in books[:10]:
     book = book.get('_source') #.get('sentence')
     print(json.dumps(book, indent=4))
 
