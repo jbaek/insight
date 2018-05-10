@@ -9,11 +9,13 @@ doc = {
             }
         }
 
-res = es.search(index="sentences", doc_type='testdoctype', body=doc,scroll='1m')
+res = es.search(index="books", doc_type='sentences', body=doc,scroll='1m')
+# res = es.search(index="sentences", doc_type='testdoctype', body=doc,scroll='1m')
+with open('from_es.txt', 'w') as the_file:
+    the_file.write(json.dumps(res, indent=4))
+
 books = res.get('hits').get('hits')
 for book in books:
     book = book.get('_source').get('sentence')
     print(book)
 
-with open('from_es.txt', 'w') as the_file:
-    the_file.write(json.dumps(res, indent=4))

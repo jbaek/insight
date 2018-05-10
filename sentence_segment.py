@@ -2,6 +2,7 @@ import time
 import sys
 import os
 from os.path import isfile, join
+from os import environ as env
 import shutil
 import glob
 import json
@@ -27,7 +28,7 @@ def _start_spark():
     """
     spark = SparkSession.builder.appName("readerApp") \
             .master("spark://ip-10-0-0-5.us-west-2.compute.internal:7077") \
-            .config("spark.driver.memory","8G") \
+            .config("spark.driver.memory","6G") \
             .config("spark.driver.maxResultSize", "2G") \
             .config("spark.executor.memory", "6G") \
             .config("spark.jar", "lib/sparknlp.jar") \
@@ -41,16 +42,19 @@ NUM_PARTITIONS = 6
 
 spark = _start_spark()
 s3resource = boto3.resource('s3')
-
+NODES = ['localhost:9200'] # ['ip-10-0-0-5:9200'] #, 'ip-10-0-0-7', 'ip-10-0-0-11', 'ip-10-0-0-14']
 
 def main():
 
     _set_env_vars()
 
+    _start_es()
+    es_write_conf = _set_es_conf(spark)
+
     keys = _list_s3_files(
             s3resource,
             filetype=TEXT_FOLDER,
-            numrows=3
+            numrows=5
             )
     # testing_rdd = spark.sparkContext.wholeTextFiles("s3a://jason-b/{0}".format(TEXT_FOLDER), minPartitions=6, use_unicode=False)
     pbooks = s3_to_rdd(spark, keys)
@@ -63,29 +67,36 @@ def main():
             lambda s: _udf_count_syllables_sentence(s),
             ArrayType(IntegerType())
             )
+    count_multisyllables_udf = func.udf(
+            lambda s: sum(_udf_count_syllables_sentence(s)),
+            IntegerType()
+            )
     token_lengths_udf = func.udf(
             lambda arr: token_length(arr),
             ArrayType(IntegerType())
             )
-
-    exploded = output.select(
+    output = output.select(
             func.monotonically_increasing_id().alias("doc_id"),
-            "fileName",
-            func.size("sentence.result").alias("numSentencesInBook"),
-            func.explode("sentence.result").alias("sentenceText"),
-            "token",
-            # token_lengths_udf('token.result').alias("tokenLengths")
-            count_syllables_udf('token.result').alias("syllableCounts")
+            "fileName"
             )
-
-    # exploded = exploded.select(
+    # output = output.select(
+            # func.monotonically_increasing_id().alias("doc_id"),
+            # "fileName",
+            # func.size("sentence.result").alias("numSentencesInBook"),
+            # func.explode("sentence.result").alias("sentenceText"),
+            # "token",
+            # # token_lengths_udf('token.result').alias("tokenLengths")
+            # )
+    # output = output.select(
             # "doc_id",
             # "fileName",
             # "numSentencesInBook",
-            # count_syllables("sentenceText").alias('syllableCount'),
-            # "sentenceText"
+            # "sentenceText",
+            # # count_syllables_udf('token.result').alias("syllableCounts"),
+            # count_multisyllables_udf('token.result').alias("multiSyllableCount")
             # )
-    exploded.printSchema()
+
+    output.printSchema()
     # _write_rdd_textfile(exploded.rdd, 'txt/exploded')
 
     # exploded.groupby("doc_id").count().show()
@@ -105,11 +116,9 @@ def main():
     # sentence = output.select(["doc_id", "sentence"]).toJSON()
     # _write_rdd_textfile(sentence, 'txt/sentence')
 
-    # Write entire array to ES
-    # _start_es()
-    # es_write_conf = _set_es_conf()
-    # exploded = exploded.toJSON().map(lambda x: _format_data(x))
-    # _write_to_es(exploded, es_write_conf)
+    # Write to ES
+    output = output.rdd.map(lambda x: _format_data(x))
+    _write_to_es(output, es_write_conf)
     spark.stop()
 
     # _read_es()
@@ -117,9 +126,6 @@ def main():
     # sentences = sentence.rdd.flatMap(lambda s: s.sentence)
     # results = sentence.rdd.map(lambda s: s.result).zipWithUniqueId()
     # _write_rdd_textfile(results, 'txt/results')
-
-    # results.collect()
-    # _write_to_es(output.rdd, es_write_conf)
 
 
 def token_length(token_array):
@@ -153,8 +159,10 @@ def _count_syllables_word(word):
         numVowels-=1
     elif len(word) > 1 and word[-1:] == "e":    #remove silent e
         numVowels-=1
-    return numVowels
-    # return len(word)
+    multiSyllables = 0
+    if numVowels > 1:
+        multiSyllables = 1
+    return multiSyllables
 
 
 def map_func(key):
@@ -267,26 +275,26 @@ def _sentiment_analysis(data, pipeline):
     return result
 
 
-def _format_data(x):
-    """ Make elasticsearch-hadoop compatible"""
-    data = json.loads(x)
-    # data['doc_id'] = data.pop('count')
-    test = (data['doc_id'], json.dumps(data))
-    return test
-
-
 def _write_rdd_textfile(rdd, folder):
     if os.path.isdir(folder):
         shutil.rmtree(folder)
     rdd.saveAsTextFile(folder)
 
 
+def _format_data(x):
+    """ Make elasticsearch-hadoop compatible"""
+    data = x
+    # data = json.loads(x)
+    test = (data['doc_id'], json.dumps(data))
+    return test
+
+
 def _start_es():
-    es_cluster=["localhost:9200"]
-    es=Elasticsearch(es_cluster,http_auth=('elastic','changeme'))
-    if es.indices.exists('sentences'):
-        es.indices.delete('sentences')
-        es.indices.create('sentences')
+    # es=Elasticsearch(NODES,http_auth=('elastic','changeme'))
+    es=Elasticsearch(NODES,http_auth=(env['ES_USER'], env['ES_PASS']))
+    if es.indices.exists('books'):
+        es.indices.delete('books')
+        es.indices.create('books')
 
 
 def _write_to_es(rdd, es_write_conf):
@@ -299,18 +307,24 @@ def _write_to_es(rdd, es_write_conf):
             conf=es_write_conf
             )
 
-
-def _set_es_conf():
+def _set_es_conf(spark):
     es_write_conf = {
             # node sending data to (this should be the master)
-            "es.nodes" : 'localhost',
+            # "es.nodes.client.only": 'true',
+            # "es.nodes.wan.only": 'yes',
+            # "es.nodes.discovery": 'false',
+            # 'es.nodes'     : os_env['ES_IP'],
+            "es.nodes" : 'ip-10-0-0-5',
             "es.port" : '9200',
             # specify a resource in the form 'index/doc-type'
-            "es.resource" : 'sentences/testdoctype',
-            "es.input.json" : "yes",
+            "es.resource" : 'books/sentences',
+            "es.input.json" : 'yes',
             # field in mapping used to specify the ES document ID
-            "es.mapping.id": "doc_id"
+            "es.mapping.id": "doc_id",
+            'es.net.http.auth.user': 'elastic', # os_env['ES_USER'],
+            'es.net.http.auth.pass': 'changeme' # os_env['ES_PASS']
             }
+    es_conf = spark.sparkContext.broadcast(es_write_conf)
     return es_write_conf
 
 
@@ -322,7 +336,7 @@ def _read_es():
             # node sending data to (should be the master)    
             "es.nodes" : "localhost:9200",
             # read resource in the format 'index/doc-type'
-            "es.resource" : "sentences/testdoctype"
+            "es.resource" : "books/sentences"
             }
 
     es_rdd = sc.newAPIHadoopRDD(
