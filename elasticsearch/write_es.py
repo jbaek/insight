@@ -1,3 +1,4 @@
+
 import json
 from os import environ as env
 
@@ -23,3 +24,14 @@ for book in books:
     book = book.get('_source') #.get('sentence')
     print(json.dumps(book, indent=4))
 
+
+def _start_es():
+    es=Elasticsearch(
+            'ip-10-0-0-8:9200',
+            http_auth=(env['ES_USER'], env['ES_PASS'])
+            )
+    if es.indices.exists('books'):
+        es.indices.delete('books')
+        es.indices.create('books')
+
+_start_es()

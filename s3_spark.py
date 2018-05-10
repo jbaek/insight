@@ -17,6 +17,7 @@ def main():
 
     bucket = s3resource.Bucket('jason-b')
     logging.info(test_map_func('1'))
+    print(test_map_func(1))
 
 if __name__ == '__main__':
     FORMAT = "[%(filename)s:%(lineno)s - %(funcName)20s() ] %(message)s"

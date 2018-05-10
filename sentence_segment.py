@@ -27,7 +27,7 @@ def _start_spark():
     :returns: SparkSession object
     """
     spark = SparkSession.builder.appName("readerApp") \
-            .master("spark://ip-10-0-0-5.us-west-2.compute.internal:7077") \
+            .master("spark://ip-10-0-0-13.us-west-2.compute.internal:7077") \
             .config("spark.driver.memory","6G") \
             .config("spark.driver.maxResultSize", "2G") \
             .config("spark.executor.memory", "6G") \
@@ -42,12 +42,11 @@ NUM_PARTITIONS = 6
 
 spark = _start_spark()
 s3resource = boto3.resource('s3')
-NODES = ['localhost:9200'] # ['ip-10-0-0-5:9200'] #, 'ip-10-0-0-7', 'ip-10-0-0-11', 'ip-10-0-0-14']
+# NODES = ['localhost:9200'] # ['ip-10-0-0-5:9200'] #, 'ip-10-0-0-7', 'ip-10-0-0-11', 'ip-10-0-0-14']
 
 def main():
 
     _set_env_vars()
-
     _start_es()
     es_write_conf = _set_es_conf(spark)
 
@@ -117,7 +116,7 @@ def main():
     # _write_rdd_textfile(sentence, 'txt/sentence')
 
     # Write to ES
-    output = output.rdd.map(lambda x: _format_data(x))
+    output = output.toJSON().map(lambda x: _format_data(x))
     _write_to_es(output, es_write_conf)
     spark.stop()
 
@@ -283,15 +282,16 @@ def _write_rdd_textfile(rdd, folder):
 
 def _format_data(x):
     """ Make elasticsearch-hadoop compatible"""
-    data = x
-    # data = json.loads(x)
+    data = json.loads(x) 
     test = (data['doc_id'], json.dumps(data))
     return test
 
 
 def _start_es():
-    # es=Elasticsearch(NODES,http_auth=('elastic','changeme'))
-    es=Elasticsearch(NODES,http_auth=(env['ES_USER'], env['ES_PASS']))
+    es=Elasticsearch(
+            'ip-10-0-0-8:9200',
+            http_auth=(env['ES_USER'], env['ES_PASS'])
+            )
     if es.indices.exists('books'):
         es.indices.delete('books')
         es.indices.create('books')
@@ -321,8 +321,8 @@ def _set_es_conf(spark):
             "es.input.json" : 'yes',
             # field in mapping used to specify the ES document ID
             "es.mapping.id": "doc_id",
-            'es.net.http.auth.user': 'elastic', # os_env['ES_USER'],
-            'es.net.http.auth.pass': 'changeme' # os_env['ES_PASS']
+            'es.net.http.auth.user': env['ES_USER'],
+            'es.net.http.auth.pass': env['ES_PASS']
             }
     es_conf = spark.sparkContext.broadcast(es_write_conf)
     return es_write_conf

@@ -26,7 +26,7 @@ def _start_spark():
     :returns: SparkSession object
     """
     spark = SparkSession.builder.appName("readerApp") \
-            .master("spark://ip-10-0-0-5.us-west-2.compute.internal:7077") \
+            .master("spark://ip-10-0-0-13.us-west-2.compute.internal:7077") \
             .config("spark.driver.memory","6G") \
             .config("spark.driver.maxResultSize", "2G") \
             .config("spark.executor.memory", "6G") \
@@ -36,7 +36,7 @@ def _start_spark():
     return spark
 
 def _set_env_vars():
-    os.environ['PYSPARK_SUBMIT_ARGS'] = '--jars ../elasticsearch-hadoop-6.2.4/dist/elasticsearch-spark-20_2.11-6.2.4.jar pyspark-shell'
+    os.environ['PYSPARK_SUBMIT_ARGS'] = '--jars jars/elasticsearch-spark-20_2.11-6.2.4.jar pyspark-shell'
 
 spark = _start_spark()
 
