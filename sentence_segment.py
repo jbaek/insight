@@ -67,7 +67,7 @@ def main():
             ArrayType(IntegerType())
             )
     count_multisyllables_udf = func.udf(
-            lambda s: sum(_udf_count_syllables_sentence(s)),
+            lambda s: _udf_count_syllables_sentence(s),
             IntegerType()
             )
     token_lengths_udf = func.udf(
@@ -78,24 +78,22 @@ def main():
             # func.monotonically_increasing_id().alias("doc_id"),
             # "fileName"
             # )
-    output = output.select(
-            func.monotonically_increasing_id().alias("doc_id"),
-            "fileName",
+    sentences = output.select(
+            # func.monotonically_increasing_id().alias("doc_id"),
+            func.col("fileName").alias("doc_id"),
             func.size("sentence.result").alias("numSentencesInBook"),
-            func.explode("sentence.result").alias("sentenceText"),
-            # "token",
+            func.explode("sentence.result").alias("sentenceText")
+            # count_multisyllables_udf('token.result').alias("multiSyllableCount")
+            # "token"
             # token_lengths_udf('token.result').alias("tokenLengths")
             )
-    # output = output.select(
-            # "doc_id",
-            # "fileName",
-            # "numSentencesInBook",
-            # "sentenceText",
+    # tokens = output.select(
+            # func.col("fileName").alias("doc_id"),
             # # count_syllables_udf('token.result').alias("syllableCounts"),
             # count_multisyllables_udf('token.result').alias("multiSyllableCount")
             # )
 
-    output.printSchema()
+    sentences.printSchema()
     # _write_rdd_textfile(exploded.rdd, 'txt/exploded')
 
     # exploded.groupby("doc_id").count().show()
@@ -116,9 +114,9 @@ def main():
     # _write_rdd_textfile(sentence, 'txt/sentence')
 
     # Write to ES
-    output = output.toJSON().map(lambda x: _format_data(x))
+    sentences= sentences.toJSON().map(lambda x: _format_data(x))
     # output = output.rdd.map(lambda x: (x[0], x.k  
-    _write_to_es(output, es_write_conf)
+    _write_to_es(sentences, es_write_conf)
     spark.stop()
 
     # _read_es()
@@ -133,7 +131,7 @@ def token_length(token_array):
 
 
 def _udf_count_syllables_sentence(token_array):
-    return [_count_syllables_word(word) for word in token_array]
+    return sum([_count_syllables_word(word) for word in token_array])
     # multisyllable_count = 0
     # for word in token_array:
         # if _count_syllables_word(word) > 1:
@@ -290,7 +288,7 @@ def _format_data(x):
 
 def _start_es():
     es=Elasticsearch(
-            'ip-10-0-0-8:9200',
+            ['ip-10-0-0-8:9200', 'ip-10-0-0-10:9200', 'ip-10-0-0-6', 'ip-10-0-0-12:9200'],
             http_auth=(env['ES_USER'], env['ES_PASS'])
             )
     if es.indices.exists('books'):
@@ -315,7 +313,7 @@ def _set_es_conf(spark):
             # "es.nodes.wan.only": 'yes',
             # "es.nodes.discovery": 'false',
             # 'es.nodes'     : os_env['ES_IP'],
-            "es.nodes" : 'ip-10-0-0-8',
+            "es.nodes" : 'ip-10-0-0-8', # 'ip-10-0-0-6', 'ip-10-0-0-10', 'ip-10-0-0-12']",
             "es.port" : '9200',
             # specify a resource in the form 'index/doc-type'
             "es.resource" : 'books/sentences',
