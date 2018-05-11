@@ -6,7 +6,8 @@ from elasticsearch import Elasticsearch
 INDEX = 'books'
 sample_size = 100
 
-es = Elasticsearch(['ip-10-0-0-8:9200/'],
+es = Elasticsearch(
+        ['ip-10-0-0-8:9200', 'ip-10-0-0-10:9200', 'ip-10-0-0-6', 'ip-10-0-0-12:9200'],
         http_auth=(env['ES_USER'], env['ES_PASS'])
         )
 doc = {

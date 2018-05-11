@@ -53,7 +53,7 @@ def main():
     keys = _list_s3_files(
             s3resource,
             filetype=TEXT_FOLDER,
-            numrows=5
+            numrows=1
             )
     # testing_rdd = spark.sparkContext.wholeTextFiles("s3a://jason-b/{0}".format(TEXT_FOLDER), minPartitions=6, use_unicode=False)
     pbooks = s3_to_rdd(spark, keys)
@@ -67,7 +67,7 @@ def main():
             ArrayType(IntegerType())
             )
     count_multisyllables_udf = func.udf(
-            lambda s: _udf_count_syllables_sentence(s),
+            lambda s: sum(_udf_count_syllables_sentence(s)),
             IntegerType()
             )
     token_lengths_udf = func.udf(
@@ -79,13 +79,19 @@ def main():
             # "fileName"
             # )
     sentences = output.select(
-            # func.monotonically_increasing_id().alias("doc_id"),
-            func.col("fileName").alias("doc_id"),
+            func.monotonically_increasing_id().alias("doc_id"),
+            func.col("fileName"),
+            func.explode("sentence.result").alias("sentenceText"),
             func.size("sentence.result").alias("numSentencesInBook"),
-            func.explode("sentence.result").alias("sentenceText")
-            # count_multisyllables_udf('token.result').alias("multiSyllableCount")
-            # "token"
+            # "token.result"
             # token_lengths_udf('token.result').alias("tokenLengths")
+            )
+    sentences = sentences.select(
+            "doc_id",
+            "fileName",
+            "sentenceText",
+            "numSentencesInBook",
+            count_multisyllables_udf('sentenceText').alias("multiSyllableCount")
             )
     # tokens = output.select(
             # func.col("fileName").alias("doc_id"),
@@ -94,28 +100,20 @@ def main():
             # )
 
     sentences.printSchema()
-    # _write_rdd_textfile(exploded.rdd, 'txt/exploded')
-
-    # exploded.groupby("doc_id").count().show()
-
-    # # If the partitions are imbalanced, try to repartition
-    # parallel_keys = spark.sparkContext.parallelize(keys, numSlices=3)
-    # # activation = parallel_keys.map(lambda x: (x, x[0])) # _read_s3_file(x[0]))
-    # activation = parallel_keys.map(lambda x: x[0].replace('testing/', ''))
-    # s3_obj = activation.map(lambda x: get_s3_object(x))
-    # logging.info([x for x in activation.first()])
+    # logging.info(sentences.rdd.collect())
+    # _write_rdd_textfile(sentences.rdd, 'txt/sentences')
 
     # pipeline = _setup_sentiment_pipeline()
     # output = _sentiment_analysis(sentence_data, pipeline)
     # _write_rdd_textfile(output.rdd, 'txt/sentiment')
 
-
     # sentence = output.select(["doc_id", "sentence"]).toJSON()
     # _write_rdd_textfile(sentence, 'txt/sentence')
 
     # Write to ES
-    sentences= sentences.toJSON().map(lambda x: _format_data(x))
-    # output = output.rdd.map(lambda x: (x[0], x.k  
+    sentences = sentences.toJSON().map(lambda x: _format_data(x))
+    logging.info("FORMAT FOR HADOOP")
+    logging.info(sentences.collect())
     _write_to_es(sentences, es_write_conf)
     spark.stop()
 
@@ -123,7 +121,6 @@ def main():
     # sentences = sentence.rdd.map(lambda s: s.sentence[0].result)
     # sentences = sentence.rdd.flatMap(lambda s: s.sentence)
     # results = sentence.rdd.map(lambda s: s.result).zipWithUniqueId()
-    # _write_rdd_textfile(results, 'txt/results')
 
 
 def token_length(token_array):
@@ -131,7 +128,7 @@ def token_length(token_array):
 
 
 def _udf_count_syllables_sentence(token_array):
-    return sum([_count_syllables_word(word) for word in token_array])
+    return [_count_syllables_word(word) for word in token_array.split(" ")]
     # multisyllable_count = 0
     # for word in token_array:
         # if _count_syllables_word(word) > 1:
