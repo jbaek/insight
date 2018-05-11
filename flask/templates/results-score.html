@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+
+    <meta charset="utf-8">
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Pacifico">
+    <link rel="icon" href="http://obj-cache.cloud.ruanbekker.com/favicon.ico">
+    <link href="//netdna.bootstrapcdn.com/bootstrap/3.0.0/css/bootstrap.min.css" rel="stylesheet">
+
+    <title>Search by Score</title>
+
+  </head>
+  <body>
+
+  <div class="container">
+    <div style="background:transparent !important" class="jumbotron">
+      <div style="font-family: 'Pacifico', cursive;">
+        <p>
+          <center>
+          <font size="8">Search by Score</font>
+          </center>
+        </p>
+      </div>
+    </div>
+
+  <form action="/search/score/results" method="post">
+    <div class="input-group">
+      <input type="text" class="form-control input-lg" name="input" placeholder="Search"  autofocus>
+      <div class="input-group-btn">
+        <button class="btn btn-primary btn-lg" type="submit">
+          <i class="glyphicon glyphicon-search"></i>
+        </button>
+      </div>
+    </div>
+  </form>
+
+  <center>
+      <h1>Results: ({{ res['buckets']['sum_other_doc_count'] }}) </h1>
+  </center>
+
+  <table class="table">
+    <thead>
+      <tr>
+        <th>Book</th>
+        <th>Multi-Syllable</th>
+        <th>Number Sentences</th>
+      </tr>
+    </thead>
+
+{% for book in res['buckets'] %}
+    <tbody>
+      <tr>
+        <th scope="row">{{ book['key'] }} </th>
+          <td>{{ book['sum_multiSyllables']['value'] }}</td>
+          <td>{{ book['doc_count'] }}</td>
+      </tr>
+    </tbody>
+{% endfor %}
+  </table>
+
+        <footer class="footer">
+          <p>&copy; 2018 Jason Baek</p>
+        </footer>
+
+      </div>
+    </div>
+  </body>
+</html>

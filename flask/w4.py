@@ -26,23 +26,32 @@ def search_score():
 def search_score_request():
     range_start = request.form["range-start"]
     range_end = request.form["range-end"]
-    doc = {
-            'size' : 10000,
-            'query': {
-                'match_all' : {}
+    doc_groupby = {
+            "size": 10000,
+                "aggs": {
+                    "group_by_book": {
+                        "terms": {
+                            "field": "fileName.keyword"
+                            },
+                        "aggs": {
+                            "sum_multiSyllables": {
+                                "sum": {
+                                    "field": "multiSyllableCount"
+                                    }
+                                }
+                            }
+                        }
+                    }
                 }
-            }
     res = es.search (
         index="books",
         size=20,
-        body=doc
+        body=doc_groupby
     )
 
-    books = res.get('hits').get('hits')
-    for book in books:
-        book = book.get('_source')
+    books = res.get('aggregations').get('group_by_book')
 
-    return render_template('results.html', res=res )
+    return render_template('results-score.html', res=books)
 
 @app.route('/search/phrase')
 def search_phrase():
