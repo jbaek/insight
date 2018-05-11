@@ -57,7 +57,7 @@ def main():
             )
     # testing_rdd = spark.sparkContext.wholeTextFiles("s3a://jason-b/{0}".format(TEXT_FOLDER), minPartitions=6, use_unicode=False)
     pbooks = s3_to_rdd(spark, keys)
-    log_rdd(pbooks)
+    # log_rdd(pbooks)
 
     pipeline = _setup_pipeline()
     output = _segment_sentences(pbooks, pipeline)
@@ -81,7 +81,7 @@ def main():
     sentences = output.select(
             func.monotonically_increasing_id().alias("doc_id"),
             func.col("fileName"),
-            func.explode("sentence.result").alias("sentenceText"),
+            func.posexplode("sentence.result").alias("position", "sentenceText"),
             func.size("sentence.result").alias("numSentencesInBook"),
             # "token.result"
             # token_lengths_udf('token.result').alias("tokenLengths")
@@ -90,9 +90,23 @@ def main():
             "doc_id",
             "fileName",
             "sentenceText",
+            "position",
             "numSentencesInBook",
             count_multisyllables_udf('sentenceText').alias("multiSyllableCount")
             )
+    sentences = sentences.select(
+            "doc_id",
+            func.to_json(func.struct(
+                "doc_id",
+                "fileName",
+                "sentenceText",
+                "position",
+                "numSentencesInBook",
+                "multiSyllableCount"
+                )
+                ).alias("value")
+            )
+    logging.info(sentences.collect())
     # tokens = output.select(
             # func.col("fileName").alias("doc_id"),
             # # count_syllables_udf('token.result').alias("syllableCounts"),
@@ -111,8 +125,9 @@ def main():
     # _write_rdd_textfile(sentence, 'txt/sentence')
 
     # Write to ES
-    sentences = sentences.toJSON().map(lambda x: _format_data(x))
     logging.info("FORMAT FOR HADOOP")
+
+    sentences = sentences.rdd.map(lambda x: _format_data(x))
     logging.info(sentences.collect())
     _write_to_es(sentences, es_write_conf)
     spark.stop()
@@ -168,7 +183,7 @@ def map_func(key):
 
 def s3_to_rdd(spark, keys):
     pkeys = spark.sparkContext.parallelize(keys, numSlices=NUM_PARTITIONS)
-    logging.info(json.dumps(pkeys.collect(), indent=4))
+    # logging.info(json.dumps(pkeys.collect(), indent=4))
     pbooks = pkeys.flatMap(map_func)
     logging.info("Number of partitions: {0}".format(pbooks.getNumPartitions()))
     return pbooks
@@ -278,8 +293,9 @@ def _write_rdd_textfile(rdd, folder):
 
 def _format_data(x):
     """ Make elasticsearch-hadoop compatible"""
-    data = json.loads(x)
-    test = (data['doc_id'], json.dumps(data))
+    # data = json.loads(x)
+    # test = (data['doc_id'], json.dumps(data))
+    test = (x[0], x[1])
     return test
 
 
@@ -294,7 +310,7 @@ def _start_es():
 
 
 def _write_to_es(rdd, es_write_conf):
-    print(os.environ)
+    # print(os.environ)
     rdd.saveAsNewAPIHadoopFile(
             path='-',
             outputFormatClass="org.elasticsearch.hadoop.mr.EsOutputFormat",
