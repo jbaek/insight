@@ -59,17 +59,26 @@ def search_score_request():
     )
 
     books = res.get('aggregations').get('group_by_book')
+    books_display = filter_books_score_range(
+            books,
+            range_start,
+            range_end
+            )
+    return render_template('results-score.html', res=books_display)
+
+
+def filter_books_score_range(books, range_start, range_end):
     books_display = []
     for book in books['buckets']:
         multisyllable = book['sum_multiSyllables']['value']
         numsentences = book['doc_count']
         smog = calc_smog(multisyllable, numsentences)
-        if smog >= float(range_start) and float(smog <= range_end):
+        if smog >= float(range_start) and smog <= float(range_end):
             book['smog'] = smog
             book['sum_other_doc_count'] = books.get("sum_other_doc_count")
             books_display.append(book)
-    app.logger.info(json.dumps(books_display, indent=4))
-    return render_template('results-score.html', res=books_display)
+    return books_display
+
 
 def calc_smog(multisyllable, numsentences):
     return round(1.0430 * math.sqrt(30 * multisyllable / numsentences) + 3.1291, 2)
