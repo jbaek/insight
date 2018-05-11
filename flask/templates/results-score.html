@@ -23,34 +23,37 @@
       </div>
     </div>
 
-  <form action="/search/score/results" method="post">
-    <div class="input-group">
-      <input type="text" class="form-control input-lg" name="input" placeholder="Search"  autofocus>
-      <div class="input-group-btn">
-        <button class="btn btn-primary btn-lg" type="submit">
-          <i class="glyphicon glyphicon-search"></i>
-        </button>
+    <form action="/search/score/results" method="post">
+      <div class="input-group">
+        <input type="text" class="form-control input-lg" name="range-start" placeholder="Range Start" autofocus>
+        <input type="text" class="form-control input-lg" name="range-end" placeholder="Range End">
+        <div class="input-group-btn">
+          <button class="btn btn-primary btn-lg" type="submit">
+            <i class="glyphicon glyphicon-search"></i>
+          </button>
+        </div>
       </div>
-    </div>
-  </form>
+    </form>
 
   <center>
-      <h1>Results: ({{ res['buckets']['sum_other_doc_count'] }}) </h1>
+      <h1>Results: ({{ res['sum_other_doc_count'] }}) </h1>
   </center>
 
   <table class="table">
     <thead>
       <tr>
         <th>Book</th>
+		<th>SMOG</th>
         <th>Multi-Syllable</th>
         <th>Number Sentences</th>
       </tr>
     </thead>
 
-{% for book in res['buckets'] %}
+{% for book in res %}
     <tbody>
       <tr>
         <th scope="row">{{ book['key'] }} </th>
+          <td>{{ book['smog'] }}</td>
           <td>{{ book['sum_multiSyllables']['value'] }}</td>
           <td>{{ book['doc_count'] }}</td>
       </tr>

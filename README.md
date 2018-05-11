@@ -68,3 +68,5 @@ The SMOG scores can be compared with other readability scores that can be added 
 - http://nlp.johnsnowlabs.com/
 - https://github.com/c-w/gutenberg
 - https://spacy.io/usage/facts-figures
+- https://sysadmins.co.za/building-a-search-engine-for-our-scraped-data-on-elasticsearch-part-2/
+

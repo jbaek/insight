@@ -1,5 +1,5 @@
-
 import json
+import math
 from os import environ as env
 from elasticsearch import Elasticsearch
 
@@ -26,6 +26,7 @@ def search_score():
 def search_score_request():
     range_start = request.form["range-start"]
     range_end = request.form["range-end"]
+    app.logger.info("{0} to {1}".format(range_start, range_end))
     doc_groupby = {
             "size": 10000,
                 "aggs": {
@@ -39,6 +40,14 @@ def search_score_request():
                                     "field": "multiSyllableCount"
                                     }
                                 }
+                            # "scores_range": {
+                                # "bucket_selector": {
+                                    # "buckets_path": {
+                                        # "var1": "sum_multiSyllables"
+                                        # },
+                                    # "script": "params.var1 >= {0}".format(range_start)
+                                    # }
+                                # }
                             }
                         }
                     }
@@ -50,8 +59,20 @@ def search_score_request():
     )
 
     books = res.get('aggregations').get('group_by_book')
+    books_display = []
+    for book in books['buckets']:
+        multisyllable = book['sum_multiSyllables']['value']
+        numsentences = book['doc_count']
+        smog = calc_smog(multisyllable, numsentences)
+        if smog >= float(range_start) and float(smog <= range_end):
+            book['smog'] = smog
+            book['sum_other_doc_count'] = books.get("sum_other_doc_count")
+            books_display.append(book)
+    app.logger.info(json.dumps(books_display, indent=4))
+    return render_template('results-score.html', res=books_display)
 
-    return render_template('results-score.html', res=books)
+def calc_smog(multisyllable, numsentences):
+    return round(1.0430 * math.sqrt(30 * multisyllable / numsentences) + 3.1291, 2)
 
 @app.route('/search/phrase')
 def search_phrase():
@@ -78,21 +99,16 @@ def search_phrase_request():
 
 @app.route("/hello")
 def hello():
-
     res = es.search(index="books", doc_type='sentences', body=doc, scroll='1m')
     books = res.get('hits').get('hits')
     toweb = []
     for book in books:
-        book = book.get('_source')#.get('sentence')
+        book = book.get('_source')
         toweb.append(book)
-        # book = json.dumps(book)
-        # toweb = toweb + book + "\n"
-    # return toweb
     return jsonify(toweb)
 
 @app.route('/welcome')
 def welcome():
-
     res = es.search(index="books", doc_type='sentences', body=doc,scroll='1m')
     books = res.get('hits').get('hits')
     print(type(books))
@@ -119,3 +135,5 @@ def api_article(articleid):
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', debug=True)
+
+
