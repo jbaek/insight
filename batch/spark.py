@@ -7,7 +7,6 @@ import pyspark.sql.functions as func
 from pyspark import SparkContext
 from pyspark.sql import SparkSession
 from pyspark.sql.types import IntegerType, ArrayType
-from pyspark.ml import Pipeline
 
 ES_NODES = [ip for ip in env['ES_NODES'].split(',')]
 # NODES = ['localhost:9200'] # ['ip-10-0-0-5:9200'] #, 'ip-10-0-0-7', 'ip-10-0-0-11', 'ip-10-0-0-14']
@@ -55,3 +54,12 @@ def broadcast_es_write_config(spark):
     return es_write_conf
 
 
+def log_rdd(pbooks):
+    collected_books = pbooks \
+            .map(lambda x: x[1][:150]) \
+            .collect()
+    logging.info("Num Books: {0}".format(len(collected_books)))
+    logging.info(json.dumps(collected_books[:5], indent=4))
+    logging.info(pbooks \
+            .map(lambda y: y[0]) \
+            .collect())

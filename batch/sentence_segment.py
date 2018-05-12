@@ -1,25 +1,20 @@
 import time
-import sys
 import os
 from os import environ as env
 from os.path import isfile, join
 import shutil
-import glob
 import json
 import random
 import logging
 import argparse
 
+import boto3
+
 import utils
 import elastic
 import spark
 import aws
-
-
-sys.path.extend(glob.glob(os.path.join(os.path.expanduser("~"), ".ivy2/jars/*.jar")))
-from sparknlp.base import DocumentAssembler, Finisher
-from sparknlp.annotator import SentenceDetector, Tokenizer, Lemmatizer, SentimentDetector
-from sparknlp.common import *
+import spark_nlp
 
 
 PROJECT_DIR = env['PROJECT_DIR']
@@ -31,13 +26,16 @@ NUM_PARTITIONS = 6
 def main():
     logfile = "{0}/log/sentence_segment.log".format(PROJECT_DIR)
     utils.setup_logging(logfile, logging.INFO)
+
     args = utils.parse_arguments()
     batchsize = args.batchsize
+
     start_time = time.time()
 
     # _set_env_vars()
 
     spark_session = spark.create_spark_session()
+
     es = elastic.check_elasticsearch()
     es_write_conf = spark.broadcast_es_write_config(spark_session)
 
@@ -50,11 +48,11 @@ def main():
 
     pbooks = s3_to_rdd(spark_session, keys)
     # testing_rdd = spark.sparkContext.wholeTextFiles("s3a://jason-b/{0}".format(TEXT_FOLDER), minPartitions=6, use_unicode=False)
-    """
-    # log_rdd(pbooks)
+    # spark.log_rdd(pbooks)
 
-    pipeline = _setup_pipeline()
-    output = _segment_sentences(pbooks, pipeline)
+    pipeline = spark_nlp.setup_pipeline()
+    output = spark_nlp.segment_sentences(spark_session, pbooks, pipeline)
+    """
 
     count_syllables_udf = func.udf(
             lambda s: _udf_count_syllables_sentence(s),
@@ -205,13 +203,6 @@ def _count_syllables_word(word):
     return multiSyllables
 
 
-def log_rdd(pbooks):
-    collected_books = pbooks.map(lambda x: x[1][:150]).collect()
-    logging.info("Num Books: {0}".format(len(collected_books)))
-    logging.info(json.dumps(collected_books[:5], indent=4))
-    logging.info(pbooks.map(lambda y: y[0]).collect())
-
-
 def get_s3_object(key):
     bucket = 'jason-b'
     obj = s3resource.Object(bucket, key)
@@ -246,20 +237,6 @@ def create_testbook_df(spark):
             ["filepath", "rawDocument"]
             )
     return books_df
-
-
-def _setup_pipeline():
-    document_assembler = DocumentAssembler().setInputCol("rawDocument").setOutputCol("document").setIdCol("fileName")
-    sentence_detector = SentenceDetector().setInputCols(["document"]).setOutputCol("sentence")
-    tokenizer = Tokenizer().setInputCols(["sentence"]).setOutputCol("token")
-    pipeline = Pipeline().setStages([document_assembler, sentence_detector, tokenizer])
-    return pipeline
-
-
-def _segment_sentences(books_rdd, pipeline):
-    books_df = spark.createDataFrame(books_rdd, ["fileName", "rawDocument"])
-    output = pipeline.fit(books_df).transform(books_df)
-    return output
 
 
 def _setup_sentiment_pipeline():
