@@ -10,6 +10,7 @@ import random
 import logging
 import argparse
 
+import utils
 import boto3
 
 sys.path.extend(glob.glob(os.path.join(os.path.expanduser("~"), ".ivy2/jars/*.jar")))
@@ -24,6 +25,13 @@ from pyspark.sql.types import IntegerType, ArrayType
 from pyspark.ml import Pipeline
 from elasticsearch import Elasticsearch
 
+PROJECT_DIR = env['PROJECT_DIR']
+ES_USER = env['ES_USER']
+ES_PASS = env['ES_PASS']
+
+TEXT_FOLDER = 'txt'
+s3_bucket = "s3a://jason-b"
+NUM_PARTITIONS = 6
 
 def _start_spark():
     """ create and configure SparkSession; for SparkSQL
@@ -39,13 +47,14 @@ def _start_spark():
             .getOrCreate()
     return spark
 
-TEXT_FOLDER = 'txt'
-s3_bucket = "s3a://jason-b"
-NUM_PARTITIONS = 6
-
 # NODES = ['localhost:9200'] # ['ip-10-0-0-5:9200'] #, 'ip-10-0-0-7', 'ip-10-0-0-11', 'ip-10-0-0-14']
 
 def main():
+
+    utils.setup_logging("log/sentence_segment.log")
+    args = utils.parse_arguments()
+    start_time = time.time()
+    batchsize = args.batchsize
 
     _set_env_vars()
     _start_es()
@@ -54,7 +63,7 @@ def main():
     keys = _list_s3_files(
             s3resource,
             filetype=TEXT_FOLDER,
-            numrows=55000
+            numrows=batchsize
             )
     # testing_rdd = spark.sparkContext.wholeTextFiles("s3a://jason-b/{0}".format(TEXT_FOLDER), minPartitions=6, use_unicode=False)
     pbooks = s3_to_rdd(spark, keys)
@@ -138,6 +147,8 @@ def main():
     # sentences = sentence.rdd.flatMap(lambda s: s.sentence)
     # results = sentence.rdd.map(lambda s: s.result).zipWithUniqueId()
 
+    end_time = time.time()
+    logging.info("RUNTIME: {0}".format(end_time - start_time))
 
 def _set_env_vars():
     # set environment variable PYSPARK_SUBMIT_ARGS
@@ -366,42 +377,13 @@ def _read_es():
     sc.stop()
 
 
-def setup_logging(filename):
-    """
-    :param filename: relative path and filename of log
-    """
-    log_format = "%(asctime)s - %(name)s - %(levelname)s - %(lineno)s - %(funcName)20s() %(message)s" 
-    logging.basicConfig(
-            filename=filename,
-            format=log_format,
-            level=logging.INFO,
-            filemode = 'w'
-            )
-
-
-def parse_arguments():
-    """ Parses command line arguments passed from shell script
-    :returns: parser object
-    """
-    parser = argparse.ArgumentParser(description='Process data with spark-nlp')
-    parser.add_argument(
-            '-b', '--batchsize',
-            action='store',
-            type=int,
-            default=2,
-            help='number of rows to run through batch processing'
-            )
-    args = parser.parse_args()
-    logging.info(json.dumps(vars(args)))
-    return args
 
 if __name__ == '__main__':
-    setup_logging("log/sentence_segment.log")
-    args = parse_arguments()
+    print('hello')
+    utils.setup_logging("{0}/log/sentence_segment.log".format(PROJECT_DIR))
+    args = utils.parse_arguments()
     start_time = time.time()
-    logging.info(args.batchsize)
+    batchsize = args.batchsize
     # spark = _start_spark()
     # s3resource = boto3.resource('s3')
     # main()
-    end_time = time.time()
-    logging.info("RUNTIME: {0}".format(end_time - start_time))
