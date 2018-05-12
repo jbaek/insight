@@ -1,24 +1,27 @@
 import time
 import sys
 import os
-from os.path import isfile, join
 from os import environ as env
+from os.path import isfile, join
 import shutil
 import glob
 import json
 import random
 import logging
+import argparse
+
 import boto3
 
 sys.path.extend(glob.glob(os.path.join(os.path.expanduser("~"), ".ivy2/jars/*.jar")))
 from sparknlp.base import DocumentAssembler, Finisher
 from sparknlp.annotator import SentenceDetector, Tokenizer, Lemmatizer, SentimentDetector
 from sparknlp.common import *
+
 import pyspark.sql.functions as func
+from pyspark import SparkContext
 from pyspark.sql import SparkSession
 from pyspark.sql.types import IntegerType, ArrayType
 from pyspark.ml import Pipeline
-from pyspark import SparkContext
 from elasticsearch import Elasticsearch
 
 
@@ -40,8 +43,6 @@ TEXT_FOLDER = 'txt'
 s3_bucket = "s3a://jason-b"
 NUM_PARTITIONS = 6
 
-spark = _start_spark()
-s3resource = boto3.resource('s3')
 # NODES = ['localhost:9200'] # ['ip-10-0-0-5:9200'] #, 'ip-10-0-0-7', 'ip-10-0-0-11', 'ip-10-0-0-14']
 
 def main():
@@ -53,7 +54,7 @@ def main():
     keys = _list_s3_files(
             s3resource,
             filetype=TEXT_FOLDER,
-            numrows=1
+            numrows=55000
             )
     # testing_rdd = spark.sparkContext.wholeTextFiles("s3a://jason-b/{0}".format(TEXT_FOLDER), minPartitions=6, use_unicode=False)
     pbooks = s3_to_rdd(spark, keys)
@@ -106,7 +107,7 @@ def main():
                 )
                 ).alias("value")
             )
-    logging.info(sentences.collect())
+    # logging.info(sentences.collect())
     # tokens = output.select(
             # func.col("fileName").alias("doc_id"),
             # # count_syllables_udf('token.result').alias("syllableCounts"),
@@ -128,14 +129,19 @@ def main():
     logging.info("FORMAT FOR HADOOP")
 
     sentences = sentences.rdd.map(lambda x: _format_data(x))
-    logging.info(sentences.collect())
-    _write_to_es(sentences, es_write_conf)
+    # logging.info(sentences.collect())
+    # _write_to_es(sentences, es_write_conf)
     spark.stop()
 
     # _read_es()
     # sentences = sentence.rdd.map(lambda s: s.sentence[0].result)
     # sentences = sentence.rdd.flatMap(lambda s: s.sentence)
     # results = sentence.rdd.map(lambda s: s.result).zipWithUniqueId()
+
+
+def _set_env_vars():
+    # set environment variable PYSPARK_SUBMIT_ARGS
+    os.environ['PYSPARK_SUBMIT_ARGS'] = '--jars ../elasticsearch-hadoop-6.2.4/dist/elasticsearch-spark-20_2.11-6.2.4.jar pyspark-shell'
 
 
 def token_length(token_array):
@@ -206,11 +212,6 @@ def _read_s3_file(filepath):
     booksRDD = spark.sparkContext.wholeTextFiles(filepath, use_unicode=False)
     # books_df = spark.createDataFrame(booksRDD, ["filepath", "rawDocument"])
     return booksRDD.map(lambda x: x[1])
-
-
-def _set_env_vars():
-    # set environment variable PYSPARK_SUBMIT_ARGS
-    os.environ['PYSPARK_SUBMIT_ARGS'] = '--jars ../elasticsearch-hadoop-6.2.4/dist/elasticsearch-spark-20_2.11-6.2.4.jar pyspark-shell'
 
 
 def _list_s3_files(s3resource, filetype, numrows):
@@ -301,12 +302,12 @@ def _format_data(x):
 
 def _start_es():
     es=Elasticsearch(
-            ['ip-10-0-0-8:9200', 'ip-10-0-0-10:9200', 'ip-10-0-0-6', 'ip-10-0-0-12:9200'],
+            ['ip-10-0-0-8:9200', 'ip-10-0-0-10:9200', 'ip-10-0-0-6:9200', 'ip-10-0-0-12:9200'],
             http_auth=(env['ES_USER'], env['ES_PASS'])
             )
-    if es.indices.exists('books'):
-        es.indices.delete('books')
-        es.indices.create('books')
+    # if es.indices.exists('books'):
+        # es.indices.delete('books')
+        # es.indices.create('books')
 
 
 def _write_to_es(rdd, es_write_conf):
@@ -365,10 +366,42 @@ def _read_es():
     sc.stop()
 
 
+def setup_logging(filename):
+    """
+    :param filename: relative path and filename of log
+    """
+    log_format = "%(asctime)s - %(name)s - %(levelname)s - %(lineno)s - %(funcName)20s() %(message)s" 
+    logging.basicConfig(
+            filename=filename,
+            format=log_format,
+            level=logging.INFO,
+            filemode = 'w'
+            )
+
+
+def parse_arguments():
+    """ Parses command line arguments passed from shell script
+    :returns: parser object
+    """
+    parser = argparse.ArgumentParser(description='Process data with spark-nlp')
+    parser.add_argument(
+            '-b', '--batchsize',
+            action='store',
+            type=int,
+            default=2,
+            help='number of rows to run through batch processing'
+            )
+    args = parser.parse_args()
+    logging.info(json.dumps(vars(args)))
+    return args
+
 if __name__ == '__main__':
-    FORMAT = "[%(filename)s:%(lineno)s - %(funcName)20s() ] %(message)s"
-    logging.basicConfig(filename="log/sentence_segment.log", format=FORMAT, level=logging.INFO, filemode = 'w')
+    setup_logging("log/sentence_segment.log")
+    args = parse_arguments()
     start_time = time.time()
-    main()
+    logging.info(args.batchsize)
+    # spark = _start_spark()
+    # s3resource = boto3.resource('s3')
+    # main()
     end_time = time.time()
     logging.info("RUNTIME: {0}".format(end_time - start_time))
