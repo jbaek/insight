@@ -43,9 +43,9 @@
     <thead>
       <tr>
         <th>Book</th>
+        <th>Multi-Syllable Words</th>
+        <th>Sentences</th>
 		<th>SMOG</th>
-        <th>Multi-Syllable</th>
-        <th>Number Sentences</th>
       </tr>
     </thead>
 
@@ -53,9 +53,9 @@
     <tbody>
       <tr>
         <th scope="row">{{ book['key'] }} </th>
-          <td>{{ book['smog'] }}</td>
           <td>{{ book['sum_multiSyllables']['value'] }}</td>
           <td>{{ book['doc_count'] }}</td>
+          <td>{{ book['smog'] }}</td>
       </tr>
     </tbody>
 {% endfor %}
