@@ -11,6 +11,7 @@ import logging
 import argparse
 
 import utils
+import elastic
 import boto3
 
 sys.path.extend(glob.glob(os.path.join(os.path.expanduser("~"), ".ivy2/jars/*.jar")))
@@ -23,41 +24,27 @@ from pyspark import SparkContext
 from pyspark.sql import SparkSession
 from pyspark.sql.types import IntegerType, ArrayType
 from pyspark.ml import Pipeline
-from elasticsearch import Elasticsearch
 
 PROJECT_DIR = env['PROJECT_DIR']
-ES_USER = env['ES_USER']
-ES_PASS = env['ES_PASS']
+# ['ip-10-0-0-8:9200','ip-10-0-0-10:9200','ip-10-0-0-6:9200','ip-10-0-0-12:9200']
 
 TEXT_FOLDER = 'txt'
 s3_bucket = "s3a://jason-b"
 NUM_PARTITIONS = 6
-
-def _start_spark():
-    """ create and configure SparkSession; for SparkSQL
-    :returns: SparkSession object
-    """
-    spark = SparkSession.builder.appName("readerApp") \
-            .master("spark://ip-10-0-0-13.us-west-2.compute.internal:7077") \
-            .config("spark.driver.memory","6G") \
-            .config("spark.driver.maxResultSize", "2G") \
-            .config("spark.executor.memory", "6G") \
-            .config("spark.jar", "lib/sparknlp.jar") \
-            .config("spark.kryoserializer.buffer.max", "500m") \
-            .getOrCreate()
-    return spark
-
 # NODES = ['localhost:9200'] # ['ip-10-0-0-5:9200'] #, 'ip-10-0-0-7', 'ip-10-0-0-11', 'ip-10-0-0-14']
 
-def main():
 
-    utils.setup_logging("log/sentence_segment.log")
+def main():
+    logfile = "{0}/log/sentence_segment.log".format(PROJECT_DIR)
+    utils.setup_logging(logfile, logging.INFO)
     args = utils.parse_arguments()
     start_time = time.time()
     batchsize = args.batchsize
 
-    _set_env_vars()
-    _start_es()
+    # _set_env_vars()
+
+    es = elastic.check_elasticsearch()
+    """
     es_write_conf = _set_es_conf(spark)
 
     keys = _list_s3_files(
@@ -147,8 +134,25 @@ def main():
     # sentences = sentence.rdd.flatMap(lambda s: s.sentence)
     # results = sentence.rdd.map(lambda s: s.result).zipWithUniqueId()
 
+    """
     end_time = time.time()
     logging.info("RUNTIME: {0}".format(end_time - start_time))
+
+
+def _start_spark():
+    """ create and configure SparkSession; for SparkSQL
+    :returns: SparkSession object
+    """
+    spark = SparkSession.builder.appName("readerApp") \
+            .master("spark://ip-10-0-0-13.us-west-2.compute.internal:7077") \
+            .config("spark.driver.memory","6G") \
+            .config("spark.driver.maxResultSize", "2G") \
+            .config("spark.executor.memory", "6G") \
+            .config("spark.jar", "lib/sparknlp.jar") \
+            .config("spark.kryoserializer.buffer.max", "500m") \
+            .getOrCreate()
+    return spark
+
 
 def _set_env_vars():
     # set environment variable PYSPARK_SUBMIT_ARGS
@@ -310,17 +314,6 @@ def _format_data(x):
     test = (x[0], x[1])
     return test
 
-
-def _start_es():
-    es=Elasticsearch(
-            ['ip-10-0-0-8:9200', 'ip-10-0-0-10:9200', 'ip-10-0-0-6:9200', 'ip-10-0-0-12:9200'],
-            http_auth=(env['ES_USER'], env['ES_PASS'])
-            )
-    # if es.indices.exists('books'):
-        # es.indices.delete('books')
-        # es.indices.create('books')
-
-
 def _write_to_es(rdd, es_write_conf):
     # print(os.environ)
     rdd.saveAsNewAPIHadoopFile(
@@ -380,10 +373,6 @@ def _read_es():
 
 if __name__ == '__main__':
     print('hello')
-    utils.setup_logging("{0}/log/sentence_segment.log".format(PROJECT_DIR))
-    args = utils.parse_arguments()
-    start_time = time.time()
-    batchsize = args.batchsize
     # spark = _start_spark()
     # s3resource = boto3.resource('s3')
-    # main()
+    main()

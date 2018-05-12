@@ -1,9 +1,12 @@
+""" Utility functions related to batch pipeline
+"""
+
 import logging
 import json
 import argparse
 
 
-def setup_logging(filename):
+def setup_logging(filename, loglevel):
     """
     :param filename: relative path and filename of log
     """
@@ -11,7 +14,7 @@ def setup_logging(filename):
     logging.basicConfig(
             filename=filename,
             format=log_format,
-            level=logging.INFO,
+            level=loglevel,
             filemode = 'w'
             )
 
