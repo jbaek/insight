@@ -12,48 +12,45 @@ import argparse
 
 import utils
 import elastic
-import boto3
+import spark
+import aws
+
 
 sys.path.extend(glob.glob(os.path.join(os.path.expanduser("~"), ".ivy2/jars/*.jar")))
 from sparknlp.base import DocumentAssembler, Finisher
 from sparknlp.annotator import SentenceDetector, Tokenizer, Lemmatizer, SentimentDetector
 from sparknlp.common import *
 
-import pyspark.sql.functions as func
-from pyspark import SparkContext
-from pyspark.sql import SparkSession
-from pyspark.sql.types import IntegerType, ArrayType
-from pyspark.ml import Pipeline
 
 PROJECT_DIR = env['PROJECT_DIR']
-# ['ip-10-0-0-8:9200','ip-10-0-0-10:9200','ip-10-0-0-6:9200','ip-10-0-0-12:9200']
-
 TEXT_FOLDER = 'txt'
 s3_bucket = "s3a://jason-b"
 NUM_PARTITIONS = 6
-# NODES = ['localhost:9200'] # ['ip-10-0-0-5:9200'] #, 'ip-10-0-0-7', 'ip-10-0-0-11', 'ip-10-0-0-14']
 
 
 def main():
     logfile = "{0}/log/sentence_segment.log".format(PROJECT_DIR)
     utils.setup_logging(logfile, logging.INFO)
     args = utils.parse_arguments()
-    start_time = time.time()
     batchsize = args.batchsize
+    start_time = time.time()
 
     # _set_env_vars()
 
+    spark_session = spark.create_spark_session()
     es = elastic.check_elasticsearch()
-    """
-    es_write_conf = _set_es_conf(spark)
+    es_write_conf = spark.broadcast_es_write_config(spark_session)
 
-    keys = _list_s3_files(
+    s3resource = aws.create_s3_resource()
+    keys = aws.get_list_s3_files(
             s3resource,
             filetype=TEXT_FOLDER,
             numrows=batchsize
             )
+
+    pbooks = s3_to_rdd(spark_session, keys)
     # testing_rdd = spark.sparkContext.wholeTextFiles("s3a://jason-b/{0}".format(TEXT_FOLDER), minPartitions=6, use_unicode=False)
-    pbooks = s3_to_rdd(spark, keys)
+    """
     # log_rdd(pbooks)
 
     pipeline = _setup_pipeline()
@@ -139,24 +136,36 @@ def main():
     logging.info("RUNTIME: {0}".format(end_time - start_time))
 
 
-def _start_spark():
-    """ create and configure SparkSession; for SparkSQL
-    :returns: SparkSession object
-    """
-    spark = SparkSession.builder.appName("readerApp") \
-            .master("spark://ip-10-0-0-13.us-west-2.compute.internal:7077") \
-            .config("spark.driver.memory","6G") \
-            .config("spark.driver.maxResultSize", "2G") \
-            .config("spark.executor.memory", "6G") \
-            .config("spark.jar", "lib/sparknlp.jar") \
-            .config("spark.kryoserializer.buffer.max", "500m") \
-            .getOrCreate()
-    return spark
-
-
 def _set_env_vars():
     # set environment variable PYSPARK_SUBMIT_ARGS
     os.environ['PYSPARK_SUBMIT_ARGS'] = '--jars ../elasticsearch-hadoop-6.2.4/dist/elasticsearch-spark-20_2.11-6.2.4.jar pyspark-shell'
+
+
+def s3_to_rdd(spark_session, keys):
+    """ For every key pull contents of s3 files to Spark partition
+    :param spark_session: SparkSession object
+    :param keys: list of files in s3
+    :returns: spark RDD containing one row per book (filename, content)
+    """
+    pkeys = spark_session.sparkContext.parallelize(keys, numSlices=1) # , numSlices=NUM_PARTITIONS)
+    logging.debug(json.dumps(pkeys.collect(), indent=4))
+    pbooks = pkeys.flatMap(get_s3file)
+    logging.info("Number of partitions: {0}".format(pbooks.getNumPartitions()))
+    return pbooks
+
+
+def get_s3file(key):
+    """ read contents of file and remove newlines
+    :params key: name of file in s3
+    :returns: iterator object of tuple (key, value)
+    """
+    s3_client = boto3.client('s3')
+    text = boto3.client('s3') \
+            .get_object(Bucket="jason-b", Key=key)['Body'] \
+            .read() \
+            .decode('utf-8') \
+            .replace("\n", " ")
+    yield (key, text)
 
 
 def token_length(token_array):
@@ -196,19 +205,6 @@ def _count_syllables_word(word):
     return multiSyllables
 
 
-def map_func(key):
-    s3_client = boto3.client('s3')
-    text = boto3.client('s3').get_object(Bucket="jason-b", Key=key)['Body'].read().decode('utf-8').replace("\n", " ")
-    yield (key, text)
-
-
-def s3_to_rdd(spark, keys):
-    pkeys = spark.sparkContext.parallelize(keys, numSlices=NUM_PARTITIONS)
-    # logging.info(json.dumps(pkeys.collect(), indent=4))
-    pbooks = pkeys.flatMap(map_func)
-    logging.info("Number of partitions: {0}".format(pbooks.getNumPartitions()))
-    return pbooks
-
 def log_rdd(pbooks):
     collected_books = pbooks.map(lambda x: x[1][:150]).collect()
     logging.info("Num Books: {0}".format(len(collected_books)))
@@ -227,23 +223,6 @@ def _read_s3_file(filepath):
     booksRDD = spark.sparkContext.wholeTextFiles(filepath, use_unicode=False)
     # books_df = spark.createDataFrame(booksRDD, ["filepath", "rawDocument"])
     return booksRDD.map(lambda x: x[1])
-
-
-def _list_s3_files(s3resource, filetype, numrows):
-    """ List all files in S3; can't call wholeTextFiles by folder because it will overload the driver
-    Need to call wholeTextFiles for each file and map to partition?
-    :param s3resource: boto3 S3 resource object
-    :param filetype: folder of S3 bucket
-    :returns: list of tuples containing key and file size in S3
-    """
-    bucket = s3resource.Bucket('jason-b')
-    fileslist = [textfile.key for textfile in bucket.objects.filter(Prefix=filetype)]
-    fileslist.remove('{0}/'.format(TEXT_FOLDER))
-    fileslist = fileslist[:numrows]
-    logging.info("Num Files: {0}".format(len(fileslist)))
-    with open('keyslist.txt', 'w') as keysfile:
-        keysfile.write(json.dumps(fileslist, indent=4))
-    return fileslist
 
 
 def rdd_to_df(spark, books_rdd):
@@ -324,26 +303,6 @@ def _write_to_es(rdd, es_write_conf):
             conf=es_write_conf
             )
 
-def _set_es_conf(spark):
-    es_write_conf = {
-            # node sending data to (this should be the master)
-            # "es.nodes.client.only": 'true',
-            # "es.nodes.wan.only": 'yes',
-            # "es.nodes.discovery": 'false',
-            # 'es.nodes'     : os_env['ES_IP'],
-            "es.nodes" : 'ip-10-0-0-8', # 'ip-10-0-0-6', 'ip-10-0-0-10', 'ip-10-0-0-12']",
-            "es.port" : '9200',
-            # specify a resource in the form 'index/doc-type'
-            "es.resource" : 'books/sentences',
-            "es.input.json" : 'yes',
-            # field in mapping used to specify the ES document ID
-            "es.mapping.id": "doc_id",
-            'es.net.http.auth.user': env['ES_USER'],
-            'es.net.http.auth.pass': env['ES_PASS']
-            }
-    es_conf = spark.sparkContext.broadcast(es_write_conf)
-    return es_write_conf
-
 
 def _read_es():
     sc = SparkContext(appName="PythonSparkReading")
@@ -373,6 +332,4 @@ def _read_es():
 
 if __name__ == '__main__':
     print('hello')
-    # spark = _start_spark()
-    # s3resource = boto3.resource('s3')
     main()

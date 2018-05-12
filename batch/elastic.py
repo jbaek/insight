@@ -8,7 +8,7 @@ from os import environ as env
 ES_USER = env['ES_USER']
 ES_PASS = env['ES_PASS']
 ES_NODES = [ip for ip in env['ES_NODES'].split(',')]
-
+# ['ip-10-0-0-8:9200','ip-10-0-0-10:9200','ip-10-0-0-6:9200','ip-10-0-0-12:9200']
 
 def check_elasticsearch():
     """ Check that ElasticSearch nodes are up
