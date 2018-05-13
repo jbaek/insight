@@ -58,3 +58,22 @@ def tokenize_sentences(sentences_df):
             )
     tokenized = regexTokenizer.transform(sentences_df)
     return tokenized
+
+def setup_sentiment_pipeline():
+    lexicon = 'lexicon.txt'
+    document_assembler = DocumentAssembler().setInputCol("rawDocument").setOutputCol("document").setIdCol("sentence_id")
+    sentence_detector = SentenceDetector().setInputCols(["document"]).setOutputCol("sentence")
+    tokenizer = Tokenizer().setInputCols(["sentence"]).setOutputCol("token")
+    lemmatizer = Lemmatizer().setInputCols(["token"]).setOutputCol("lemma").setDictionary("txt/corpus/lemmas_small.txt", key_delimiter="->", value_delimiter="\t")
+    sentiment_detector = SentimentDetector().setInputCols(["lemma", "sentence"]).setOutputCol("sentiment_score").setDictionary("txt/corpus/{0}".format(lexicon), ",")
+    finisher = Finisher().setInputCols(["sentiment_score"]).setOutputCols(["sentiment"])
+    pipeline = Pipeline(stages=[document_assembler, sentence_detector, tokenizer, lemmatizer, sentiment_detector, finisher])
+    return pipeline
+
+
+def sentiment_analysis(data, pipeline):
+    model = pipeline.fit(data)
+    result = model.transform(data)
+    return result
+
+

@@ -26,3 +26,10 @@ def check_elasticsearch():
 
     return es
 
+def format_data(x):
+    """ Make elasticsearch-hadoop compatible"""
+    # data = json.loads(x)
+    # test = (data['sentence_id'], json.dumps(data))
+    test = (x[0], x[1])
+    return test
+
