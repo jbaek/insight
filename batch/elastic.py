@@ -33,3 +33,27 @@ def format_data(x):
     test = (x[0], x[1])
     return test
 
+
+def read_es():
+    sc = SparkContext(appName="PythonSparkReading")
+    sc.setLogLevel("WARN")
+
+    es_read_conf = {
+            # node sending data to (should be the master)    
+            "es.nodes" : "localhost:9200",
+            # read resource in the format 'index/doc-type'
+            "es.resource" : "books/sentences"
+            }
+
+    es_rdd = sc.newAPIHadoopRDD(
+            inputFormatClass="org.elasticsearch.hadoop.mr.EsInputFormat",
+            keyClass="org.apache.hadoop.io.NullWritable",
+            valueClass="org.elasticsearch.hadoop.mr.LinkedMapWritable",
+            conf=es_read_conf
+            )
+
+    first_five = es_rdd.take(2)
+    print(first_five)
+    es_rdd = es_rdd.map(lambda x: x[1])
+    es_rdd.take(1)
+    sc.stop()
