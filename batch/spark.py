@@ -1,15 +1,16 @@
 """ PySpark code related to batch pipeline
 """
 import logging
+import json
 from os import environ as env
 
-import pyspark.sql.functions as func
 from pyspark import SparkContext
 from pyspark.sql import SparkSession
-from pyspark.sql.types import IntegerType, ArrayType
 
 ES_NODES = [ip for ip in env['ES_NODES'].split(',')]
 # NODES = ['localhost:9200'] # ['ip-10-0-0-5:9200'] #, 'ip-10-0-0-7', 'ip-10-0-0-11', 'ip-10-0-0-14']
+ES_MASTER_NODE = 'ip-10-0-0-8'
+
 
 def create_spark_session():
     """ create and configure SparkSession; for SparkSQL
@@ -37,13 +38,13 @@ def broadcast_es_write_config(spark):
     """
     es_write_conf = {
             # node sending data to (this should be the master)
-            "es.nodes" : 'ip-10-0-0-8',
+            "es.nodes" : ES_MASTER_NODE,
             "es.port" : '9200',
             # specify a resource in the form 'index/doc-type'
             "es.resource" : 'books/sentences',
             "es.input.json" : 'yes',
             # field in mapping used to specify the ES document ID
-            "es.mapping.id": "doc_id",
+            "es.mapping.id": "sentence_id",
             'es.net.http.auth.user': env['ES_USER'],
             'es.net.http.auth.pass': env['ES_PASS']
             # "es.nodes.client.only": 'true',
@@ -55,11 +56,10 @@ def broadcast_es_write_config(spark):
 
 
 def log_rdd(pbooks):
+    """ Logging function for debugging purposes
+    :param pbooks: RDD, one row per book
+    """
     collected_books = pbooks \
             .map(lambda x: x[1][:150]) \
             .collect()
-    logging.info("Num Books: {0}".format(len(collected_books)))
     logging.info(json.dumps(collected_books[:5], indent=4))
-    logging.info(pbooks \
-            .map(lambda y: y[0]) \
-            .collect())

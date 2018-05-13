@@ -16,6 +16,8 @@ import spark
 import aws
 import spark_nlp
 
+import pyspark.sql.functions as func
+from pyspark.sql.types import IntegerType, ArrayType
 
 PROJECT_DIR = env['PROJECT_DIR']
 TEXT_FOLDER = 'txt'
@@ -51,45 +53,49 @@ def main():
     # spark.log_rdd(pbooks)
 
     pipeline = spark_nlp.setup_pipeline()
-    output = spark_nlp.segment_sentences(spark_session, pbooks, pipeline)
-    """
+    books = spark_nlp.segment_sentences(spark_session, pbooks, pipeline)
 
-    count_syllables_udf = func.udf(
-            lambda s: _udf_count_syllables_sentence(s),
-            ArrayType(IntegerType())
-            )
-    count_multisyllables_udf = func.udf(
-            lambda s: sum(_udf_count_syllables_sentence(s)),
-            IntegerType()
-            )
-    token_lengths_udf = func.udf(
-            lambda arr: token_length(arr),
-            ArrayType(IntegerType())
-            )
-    # output = output.select(
-            # func.monotonically_increasing_id().alias("doc_id"),
-            # "fileName"
-            # )
-    sentences = output.select(
-            func.monotonically_increasing_id().alias("doc_id"),
+    # Go from one book per row to one sentence per row
+    sentences = books.select(
+            func.monotonically_increasing_id().alias("sentence_id"),
             func.col("fileName"),
             func.posexplode("sentence.result").alias("position", "sentenceText"),
             func.size("sentence.result").alias("numSentencesInBook"),
-            # "token.result"
+            # func.col("token.result").alias('book_tokens')
             # token_lengths_udf('token.result').alias("tokenLengths")
             )
-    sentences = sentences.select(
-            "doc_id",
-            "fileName",
-            "sentenceText",
-            "position",
-            "numSentencesInBook",
-            count_multisyllables_udf('sentenceText').alias("multiSyllableCount")
+    sentences = spark_nlp.tokenize_sentences(sentences)
+    logging.info("Num Sentences: {0}".format(sentences.count()))
+    logging.info(sentences.first())
+
+    """
+    count_syllables_udf = func.udf(
+            lambda s: _udf_sentence_count_syllables_sentence(s),
+            ArrayType(IntegerType())
+            )
+    count_sentence_multisyllables_udf = func.udf(
+            lambda s: sum(_udf_sentence_count_syllables_sentence(s)),
+            IntegerType()
+            )
+    count_array_multisyllables_udf = func.udf(
+            lambda a: sum(_udf_array_count_syllables_sentence(a)),
+            IntegerType()
             )
     sentences = sentences.select(
-            "doc_id",
+            "sentence_id",
+            "fileName",
+            "position",
+            "sentenceText",
+            "numSentencesInBook",
+            # count_sentence_multisyllables_udf('sentenceText') \
+                    # .alias("multiSyllableCount")
+            count_array_multisyllables_udf("book_tokens") \
+                    .alias("multiSyllableCount")
+            )
+    sentences = sentences.select(
+            "sentence_id",
             func.to_json(func.struct(
-                "doc_id",
+                "sentence_id",
                 "fileName",
                 "sentenceText",
                 "position",
@@ -100,7 +106,7 @@ def main():
             )
     # logging.info(sentences.collect())
     # tokens = output.select(
-            # func.col("fileName").alias("doc_id"),
+            # func.col("fileName").alias("sentence_id"),
             # # count_syllables_udf('token.result').alias("syllableCounts"),
             # count_multisyllables_udf('token.result').alias("multiSyllableCount")
             # )
@@ -113,7 +119,7 @@ def main():
     # output = _sentiment_analysis(sentence_data, pipeline)
     # _write_rdd_textfile(output.rdd, 'txt/sentiment')
 
-    # sentence = output.select(["doc_id", "sentence"]).toJSON()
+    # sentence = output.select(["sentence_id", "sentence"]).toJSON()
     # _write_rdd_textfile(sentence, 'txt/sentence')
 
     # Write to ES
@@ -122,7 +128,6 @@ def main():
     sentences = sentences.rdd.map(lambda x: _format_data(x))
     # logging.info(sentences.collect())
     # _write_to_es(sentences, es_write_conf)
-    spark.stop()
 
     # _read_es()
     # sentences = sentence.rdd.map(lambda s: s.sentence[0].result)
@@ -130,6 +135,7 @@ def main():
     # results = sentence.rdd.map(lambda s: s.result).zipWithUniqueId()
 
     """
+    spark_session.stop()
     end_time = time.time()
     logging.info("RUNTIME: {0}".format(end_time - start_time))
 
@@ -145,14 +151,14 @@ def s3_to_rdd(spark_session, keys):
     :param keys: list of files in s3
     :returns: spark RDD containing one row per book (filename, content)
     """
-    pkeys = spark_session.sparkContext.parallelize(keys, numSlices=1) # , numSlices=NUM_PARTITIONS)
+    pkeys = spark_session.sparkContext.parallelize(keys) # , numSlices=NUM_PARTITIONS)
     logging.debug(json.dumps(pkeys.collect(), indent=4))
-    pbooks = pkeys.flatMap(get_s3file)
+    pbooks = pkeys.flatMap(_get_s3file_map_func)
     logging.info("Number of partitions: {0}".format(pbooks.getNumPartitions()))
     return pbooks
 
 
-def get_s3file(key):
+def _get_s3file_map_func(key):
     """ read contents of file and remove newlines
     :params key: name of file in s3
     :returns: iterator object of tuple (key, value)
@@ -166,12 +172,12 @@ def get_s3file(key):
     yield (key, text)
 
 
-def token_length(token_array):
-    return [len(x) for x in token_array]
+def _udf_array_count_syllables_sentence(token_array):
+    return [_count_syllables_word(word) for word in token_array]
 
 
-def _udf_count_syllables_sentence(token_array):
-    return [_count_syllables_word(word) for word in token_array.split(" ")]
+def _udf_string_count_syllables_sentence(sentence_string):
+    return [_count_syllables_word(word) for word in sentence_string.split(" ")]
     # multisyllable_count = 0
     # for word in token_array:
         # if _count_syllables_word(word) > 1:
@@ -241,7 +247,7 @@ def create_testbook_df(spark):
 
 def _setup_sentiment_pipeline():
     lexicon = 'lexicon.txt'
-    document_assembler = DocumentAssembler().setInputCol("rawDocument").setOutputCol("document").setIdCol("doc_id")
+    document_assembler = DocumentAssembler().setInputCol("rawDocument").setOutputCol("document").setIdCol("sentence_id")
     sentence_detector = SentenceDetector().setInputCols(["document"]).setOutputCol("sentence")
     tokenizer = Tokenizer().setInputCols(["sentence"]).setOutputCol("token")
     lemmatizer = Lemmatizer().setInputCols(["token"]).setOutputCol("lemma").setDictionary("txt/corpus/lemmas_small.txt", key_delimiter="->", value_delimiter="\t")
@@ -266,7 +272,7 @@ def _write_rdd_textfile(rdd, folder):
 def _format_data(x):
     """ Make elasticsearch-hadoop compatible"""
     # data = json.loads(x)
-    # test = (data['doc_id'], json.dumps(data))
+    # test = (data['sentence_id'], json.dumps(data))
     test = (x[0], x[1])
     return test
 
