@@ -5,16 +5,17 @@ from elasticsearch import Elasticsearch, ConnectionError
 import logging
 from os import environ as env
 
-ES_USER = env['ES_USER']
-ES_PASS = env['ES_PASS']
-ES_NODES = [ip for ip in env['ES_NODES'].split(',')]
 # ['ip-10-0-0-8:9200','ip-10-0-0-10:9200','ip-10-0-0-6:9200','ip-10-0-0-12:9200']
 
 def check_elasticsearch():
     """ Check that ElasticSearch nodes are up
     :returns: python Elasticsearch object
     """
+    ES_USER = env['ES_USER']
+    ES_PASS = env['ES_PASS']
+    ES_NODES = [ip for ip in env['ES_NODES'].split(',')]
     try:
+        logging.info(ES_USER)
         es = Elasticsearch(ES_NODES, http_auth=(ES_USER, ES_PASS))
         es.info()
     except ConnectionError as ce:

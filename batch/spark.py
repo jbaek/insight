@@ -31,11 +31,12 @@ def create_spark_session():
         raise e
 
 
-def broadcast_es_write_config(spark):
+def broadcast_es_write_config(spark_session):
     """ Broadcast Elasticsearch configuration to Spark worker nodes
     :param spark: Spark Session
     :returns: dict of ES config settings for writes
     """
+    sc = spark_session.sparkContext
     es_write_conf = {
             # node sending data to (this should be the master)
             "es.nodes" : ES_MASTER_NODE,
@@ -51,7 +52,10 @@ def broadcast_es_write_config(spark):
             # "es.nodes.wan.only": 'yes',
             # "es.nodes.discovery": 'false',
             }
-    es_conf = spark.sparkContext.broadcast(es_write_conf)
+    es_conf = sc.broadcast(es_write_conf)
+    es_user = sc.broadcast(env['ES_USER'])
+    es_pass = sc.broadcast(env['ES_PASS'])
+    es_nodes = sc.broadcast(ES_NODES)
     return es_write_conf
 
 
@@ -63,3 +67,25 @@ def log_rdd(pbooks):
             .map(lambda x: x[1][:150]) \
             .collect()
     logging.info(json.dumps(collected_books[:5], indent=4))
+
+
+def rdd_to_df(spark, books_rdd):
+    books_df = spark.createDataFrame(books_rdd)
+    testbook_df = create_testbook_df(spark)
+    books_df = testbook_df.union(books_df)
+
+    books_df = books_df.select(
+            "filepath",
+            func.substring_index("filePath", '/', -1).alias("fileName"),
+            func.translate('rawDocument', '\n\r', '  ').alias("rawDocument")
+            )
+    return books_df
+
+
+def create_testbook_df(spark):
+    test_book = "Hi I heard about Spark. I wish Java\n\rcould use case classes. Logistic regression models are neat"
+    books_df = spark.createDataFrame(
+            [("999999", test_book)],
+            ["filepath", "rawDocument"]
+            )
+    return books_df

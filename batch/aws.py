@@ -37,3 +37,14 @@ def get_list_s3_files(s3resource, filetype, numrows):
     return fileslist
 
 
+def get_s3_object(key):
+    obj = s3resource.Object(S3BUCKET, key)
+    object_body = obj.get()['Body'].read().decode('utf-8')
+    logging.info("OBJECT_BODY: " + object_body)
+    return object_body
+
+
+def read_s3_file(spark, filepath):
+    booksRDD = spark.sparkContext.wholeTextFiles(filepath, use_unicode=False)
+    # books_df = spark.createDataFrame(booksRDD, ["filepath", "rawDocument"])
+    return booksRDD.map(lambda x: x[1])
