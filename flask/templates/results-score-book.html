@@ -36,34 +36,27 @@
     </form>
 
   <center>
-      <h1>Results: ({{ res['sum_other_doc_count'] }}) </h1>
+      <h1>Results: </h1>
   </center>
 
   <table class="table">
     <thead>
       <tr>
-        <th>Book</th>
-        <th>Multi-Syllable Words</th>
-        <th>Sentences</th>
-		<th>SMOG</th>
-		<th>Link</th>
+        <th>Position</th>
+        <th>Multi-Syllable Word Count</th>
+        <th>Word Count</th>
+		<th>Sentence Text</th>
       </tr>
     </thead>
-
-{% for book in res %}
-    <tbody>
-      <tr>
-		  <th scope="row">{{ book['key'] }}</th>
-          <td>{{ book['sum_multiSyllables']['value'] }}</td>
-          <td>{{ book['doc_count'] }}</td>
-          <td>{{ book['smog'] }}</td>
-		  <td>
-				  <form action="/search/book" method="post">
-						  <button type="submit" name="book-name" class="btn btn-primary btn-lg">Go</button>
-				  </form>
-		  </td>
-      </tr>
-    </tbody>
+{% for book in books %}
+	<tbody>
+	  <tr>
+		  <th scope="row">{{ book['position'] }}</th>
+		  <td>{{ book['multiSyllableCount'] }}</td>
+		  <td>{{ book['numWordsInSentence'] }}</td>
+		  <td>{{ book['sentenceText'] }}</td>
+	  </tr>
+	</tbody>
 {% endfor %}
 
   </table>
