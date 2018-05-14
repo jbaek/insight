@@ -52,14 +52,25 @@ doc_groupby = {
                     }
                 }
             }
+doc_files = {
+        "size": 1000,
+        "aggs" : {
+                "files" : {
+                            "terms" : { "field" : "fileName.keyword",  "size" : 100000 }
+                                }
+                }}
 
-res = es.search(index=INDEX, doc_type='sentences', body=doc_groupby, scroll='1m')
-# res = es.search(index="sentences", doc_type='testdoctype', body=doc,scroll='1m')
+search_doc = doc_files
+res = es.search(index=INDEX, doc_type='sentences', body=search_doc, scroll='1m')
 with open('from_es.txt', 'w') as the_file:
-    the_file.write(json.dumps(res, indent=4))
+    # the_file.write(json.dumps(res, indent=4))
+    buckets = res.get('aggregations').get('files').get('buckets')
+    the_file.write(str(len(buckets)) + '\n')
 
-books = res.get('hits').get('hits')
-for book in books[:sample_size]:
-    book = book.get('_source') #.get('sentence')
-    print(json.dumps(book, indent=4))
+
+
+# books = res.get('hits').get('hits')
+# for book in books[:sample_size]:
+    # book = book.get('_source') #.get('sentence')
+    # print(json.dumps(book, indent=4))
 
