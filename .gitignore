@@ -1,5 +1,6 @@
 *.conf
 *.swp
+*.swo
 *.txt
 *.parquet
 *.log
@@ -7,3 +8,4 @@
 *.pyc
 latex
 .DS_Store
+metastore_db

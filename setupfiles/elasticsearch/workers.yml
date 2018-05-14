@@ -1,0 +1,11 @@
+purchase_type: on_demand
+subnet_id: subnet-020714dae9f425df5
+num_instances: 3
+key_name: jason-baek-IAM-keypair
+security_group_ids: sg-0acaa47fd905c4f0f
+instance_type: m4.large
+tag_name: es-cluster
+vol_size: 2000
+vol_type: gp2
+role: worker
+use_eips: true
