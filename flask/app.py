@@ -86,7 +86,7 @@ def calc_smog(multisyllable, numsentences):
 
 @app.route('/search/book', methods=['GET', 'POST'])
 def search_book_request():
-    # search_term = request.form["input"]
+    book_name = request.form["book-name"]
     res = es.search(
         index="books",
         size=30,
@@ -98,7 +98,7 @@ def search_book_request():
                     "must": [
                         {
                             "term": {
-                                "fileName.keyword": "txt/219.txt"
+                                "fileName.keyword": book_name
                                 }
                             },
                         {
