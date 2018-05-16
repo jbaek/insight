@@ -77,7 +77,8 @@ def filter_books_score_range(books, range_start, range_end):
             book['smog'] = smog
             book['sum_other_doc_count'] = books.get("sum_other_doc_count")
             books_display.append(book)
-    return books_display
+    books_sorted = sorted(books_display, key=lambda k: k['smog'])
+    return books_sorted
 
 
 def calc_smog(multisyllable, numsentences):
@@ -112,11 +113,30 @@ def search_book_request():
                         ]
                     }
                 },
-            "size": 30
+            "size": 30,
+            "aggs": {
+                "dedup" : {
+                    "terms": {
+                        "field": "position",
+                        "order" : { "_key" : "asc" },
+                        "size": 30
+                        },
+                    "aggs": {
+                        "dedup_docs": {
+                            "top_hits": {
+                                "size":1
+                                }
+                            }
+                        }
+                    }
+                }
             }
         )
-    books = res.get('hits').get('hits')
-    books = [book.get('_source') for book in books]
+
+    # books = res.get('hits').get('hits')
+    # books = [book.get('_source') for book in books]
+    books = res.get('aggregations').get('dedup').get('buckets')
+    books = [book.get('dedup_docs').get('hits').get('hits')[0].get('_source') for book in books]
 
     return render_template('results-score-book.html', books=books)
 
