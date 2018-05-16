@@ -28,7 +28,7 @@ def search_score_request():
     range_end = request.form["range-end"]
     app.logger.info("{0} to {1}".format(range_start, range_end))
     doc_groupby = {
-            "size": 10000,
+            "size": 0,
                 "aggs": {
                     "group_by_book": {
                         "terms": {
@@ -54,7 +54,7 @@ def search_score_request():
                 }
     res = es.search (
         index="books",
-        size=20,
+        size=100,
         body=doc_groupby
     )
 
@@ -91,6 +91,8 @@ def search_book_request():
         index="books",
         size=30,
         body={
+            "sort":
+                    { "position" : {"order" : "asc"}},
             "query": {
                 "bool": {
                     "must": [

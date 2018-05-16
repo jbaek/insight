@@ -1,5 +1,7 @@
 # Jason Baek 
 Insight Data Engineering 18B
+[Project Website](bit.ly/readassist)
+[Project Slides](bit.ly/readassistslides)
 
 ## Project Idea
 - Calculating *readability* scores for the ebooks of Project Gutenberg, supplementing the scores with content metadata and sentiment, and making them easily queryable 
@@ -39,12 +41,13 @@ The SMOG scores can be compared with other readability scores that can be added 
     - Store raw Project Gutenberg ebook data and metadata
 - Spark/spark-nlp
     - Sentence segmentation and tokenizing
-    - Count number of sentences, number of syllables
+    - Count number of sentences, 
+	- Count number of syllables per word and sum by sentence
     - Additional transformations and aggregations to support queries
 - ElasticSearch
     - Store text and scores at the sentence level
 - Flask/SQL
-    - Run queries for scores and texts
+    - Run aggregate queries for scores and texts
     - Compute readability score
     - Display trends
 
@@ -66,6 +69,7 @@ The SMOG scores can be compared with other readability scores that can be added 
 - https://www.gutenberg.org/wiki/Main_Page 
 - https://en.wikipedia.org/wiki/SMOG 
 - http://nlp.johnsnowlabs.com/
+- https://stackoverflow.com/a/33117947/758087
 - https://github.com/c-w/gutenberg
 - https://spacy.io/usage/facts-figures
 - https://sysadmins.co.za/building-a-search-engine-for-our-scraped-data-on-elasticsearch-part-2/
