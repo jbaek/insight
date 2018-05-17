@@ -16,7 +16,7 @@ def create_s3_resource():
     s3resource = boto3.resource('s3')
     return s3resource
 
-def get_list_s3_files(s3resource, filetype, numrows):
+def get_list_s3_files(s3resource, filetype, numrows=None):
     """ List all files in S3; can't call wholeTextFiles by folder because it will overload the driver
     Need to call wholeTextFiles for each file and map to partition?
     :param s3resource: boto3 S3 resource object
@@ -28,13 +28,26 @@ def get_list_s3_files(s3resource, filetype, numrows):
     except Exception as e:
         logging.info(e)
         raise e
-
     fileslist = [textfile.key for textfile in bucket.objects.filter(Prefix=filetype)]
     fileslist.remove('{0}/'.format(filetype))
+    if numrows is None:
+        numrows = len(fileslist)
     fileslist = fileslist[:numrows]
     logging.info("Num Files: {0}".format(len(fileslist)))
     logging.debug(json.dumps(fileslist, indent=4))
     return fileslist
+
+
+def duplicate_books(batchsize=None):
+    s3resource = create_s3_resource()
+    keys = get_list_s3_files(
+            s3resource,
+            filetype='txt',
+            numrows=batchsize
+            )
+    for key in keys:
+        print(key.replace('txt', '').replace('.', '').replace('/', ''))
+        # s3resource.Object('jason-b',key).copy_from(CopySource='jason-b/{0}'.format(key))
 
 
 def get_s3_object(key):
@@ -48,3 +61,6 @@ def read_s3_file(spark, filepath):
     booksRDD = spark.sparkContext.wholeTextFiles(filepath, use_unicode=False)
     # books_df = spark.createDataFrame(booksRDD, ["filepath", "rawDocument"])
     return booksRDD.map(lambda x: x[1])
+
+if __name__ == '__main__':
+    duplicate_books(2)

@@ -22,7 +22,6 @@ from pyspark.sql.types import IntegerType, ArrayType
 
 PROJECT_DIR = env['PROJECT_DIR']
 TEXT_FOLDER = 'txt'
-s3_bucket = "s3a://jason-b"
 NUM_PARTITIONS = 6
 
 
