@@ -45,9 +45,12 @@ def duplicate_books(batchsize=None):
             filetype='txt',
             numrows=batchsize
             )
+    files = []
     for key in keys:
-        print(key.replace('txt', '').replace('.', '').replace('/', ''))
-        # s3resource.Object('jason-b',key).copy_from(CopySource='jason-b/{0}'.format(key))
+        filepath = key.split('/')
+        for i in range(2, 21):
+            newfile = "txt0{0}/{1}".format(i, filepath[1])
+            s3resource.Object(S3BUCKET, newfile).copy_from(CopySource='{0}/{1}'.format(S3BUCKET, key))
 
 
 def get_s3_object(key):
@@ -63,4 +66,4 @@ def read_s3_file(spark, filepath):
     return booksRDD.map(lambda x: x[1])
 
 if __name__ == '__main__':
-    duplicate_books(2)
+    duplicate_books()
