@@ -18,6 +18,7 @@ doc = {
 	}
     }
 
+@app.route('/')
 @app.route('/search/score')
 def search_score():
     return render_template('search-score.html')

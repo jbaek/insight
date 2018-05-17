@@ -1,0 +1,15 @@
+[Unit]
+Description=Flask app for insight project
+After=multi.user.target
+
+[Service]
+User=ubuntu
+WorkingDirectory=/home/ubuntu/insight/flask
+Environment="PATH=/home/ubuntu/insight/flask"
+Environment="ES_USER=elastic"
+Environment="ES_PASS=RTEOEZDYC8HpQIMzsiEb"
+ExecStart=/usr/bin/python /home/ubuntu/insight/flask/app.py
+Restart=always
+
+[Install]
+WantedBy=multi-user.target
