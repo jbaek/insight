@@ -23,10 +23,9 @@
       </div>
     </div>
 
-    <form action="/search/score/results" method="post">
+    <form action="/search/phrase/results" method="post">
       <div class="input-group">
-        <input type="text" class="form-control input-lg" name="range-start" placeholder="Range Start" autofocus>
-        <input type="text" class="form-control input-lg" name="range-end" placeholder="Range End">
+        <input type="text" class="form-control input-lg" name="input" placeholder="Search" autofocus>
         <div class="input-group-btn">
           <button class="btn btn-primary btn-lg" type="submit">
             <i class="glyphicon glyphicon-search"></i>
@@ -45,7 +44,7 @@
         <th>Position</th>
         <th>Multi-Syllable Word Count</th>
         <th>Word Count</th>
-		<th>Sentence Text</th>
+	<th>Sentence Text</th>
       </tr>
     </thead>
 {% for book in books %}

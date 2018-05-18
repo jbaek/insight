@@ -148,11 +148,13 @@ def search_phrase():
 @app.route('/search/phrase/results', methods=['GET', 'POST'])
 def search_phrase_request():
     search_term = request.form["input"]
+    filename = request.form["filename"]
     res = es.search(
         index="books",
         size=20,
         body={
             "query": {
+                "term" : { "fileName.keyword" : "Kimchy" },
                 "multi_match" : {
                     "query": search_term,
                     "fields": [
