@@ -37,6 +37,8 @@ def get_list_s3_files(s3resource, filetype, numrows=None):
     fileslist = [textfile.key for textfile in objs if textfile.key[-1] != '/']
     # fileslist.remove('{0}'.format(filetype))
     # fileslist = fileslist[:numrows]
+    logging.info(fileslist[:10])
+    logging.info(fileslist[-10:])
     logging.info("Num Files: {0}".format(len(fileslist)))
     logging.debug(json.dumps(fileslist, indent=4))
     return fileslist

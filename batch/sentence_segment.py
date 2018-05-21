@@ -22,7 +22,7 @@ import pyspark.sql.functions as func
 from pyspark.sql.types import IntegerType, ArrayType
 
 PROJECT_DIR = env['PROJECT_DIR']
-TEXT_FOLDER = 'txt'
+TEXT_FOLDER = 'txt/'
 NUM_PARTITIONS = 6
 
 
@@ -55,82 +55,85 @@ def main():
     spark.broadcast_es_write_config(spark_session, es_write_conf)
 
     pbooks = s3_to_rdd(spark_session, keys_metadata)
-    spark.log_rdd(pbooks)
-    # # write_rdd_textfile(pbooks, '../txt/test')
+    # spark.log_rdd(pbooks)
+    # write_rdd_textfile(pbooks, '../txt/test')
 
-    # pipeline = spark_nlp.setup_pipeline()
-    # books = spark_nlp.segment_sentences(spark_session, pbooks, pipeline)
-    # books.printSchema()
+    pipeline = spark_nlp.setup_pipeline()
+    books = spark_nlp.segment_sentences(spark_session, pbooks, pipeline)
+    books.printSchema()
 
-    # # # Go from one book per row to one sentence per row
-    # sentences = books.select(
-            # func.monotonically_increasing_id().alias("sentence_id"),
-            # func.col("fileName"),
-            # func.posexplode("sentence.result").alias("position", "sentenceText"),
-            # func.size("sentence.result").alias("numSentencesInBook"),
-            # "title",
-            # "author",
-            # "subjects",
-            # "uri"
-            # )
-    # # logging.info("Num Sentences: {0}".format(sentences.count()))
+    # Go from one book per row to one sentence per row
+    sentences = books.select(
+            func.monotonically_increasing_id().alias("sentence_id"),
+            func.col("fileName"),
+            func.posexplode("sentence.result").alias("position", "sentenceText"),
+            func.size("sentence.result").alias("numSentencesInBook"),
+            "title",
+            "author",
+            "subjects",
+            "uri"
+            )
+    # logging.info("Num Sentences: {0}".format(sentences.count()))
 
-    # sentences = spark_nlp.tokenize_sentences(sentences)
+    sentences = spark_nlp.tokenize_sentences(sentences)
 
-    # count_syllables_udf = func.udf(
-            # lambda s: _udf_sentence_count_syllables_sentence(s),
-            # ArrayType(IntegerType())
-            # )
-    # count_sentence_multisyllables_udf = func.udf(
-            # lambda s: sum(_udf_sentence_count_syllables_sentence(s)),
-            # IntegerType()
-            # )
-    # count_array_multisyllables_udf = func.udf(
-            # lambda a: sum(_udf_array_count_syllables_sentence(a)),
-            # IntegerType()
-            # )
-    # sentences = sentences.select(
-            # "sentence_id",
-            # "fileName",
-            # "position",
-            # "sentenceText",
-            # "numSentencesInBook",
-            # # count_sentence_multisyllables_udf('sentenceText') \
-                    # # .alias("multiSyllableCount")
-            # count_array_multisyllables_udf("words") \
-                    # .alias("multiSyllableCount"),
-            # func.size("words").alias("numWordsInSentence"),
-            # )
-    # sentences.printSchema()
+    count_syllables_udf = func.udf(
+            lambda s: _udf_sentence_count_syllables_sentence(s),
+            ArrayType(IntegerType())
+            )
+    count_sentence_multisyllables_udf = func.udf(
+            lambda s: sum(_udf_sentence_count_syllables_sentence(s)),
+            IntegerType()
+            )
+    count_array_multisyllables_udf = func.udf(
+            lambda a: sum(_udf_array_count_syllables_sentence(a)),
+            IntegerType()
+            )
+    sentences = sentences.select(
+            "sentence_id",
+            "fileName",
+            "position",
+            "sentenceText",
+            "numSentencesInBook",
+            "title",
+            "author",
+            "subjects",
+            "uri",
+            # count_sentence_multisyllables_udf('sentenceText') \
+                    # .alias("multiSyllableCount")
+            count_array_multisyllables_udf("words") \
+                    .alias("multiSyllableCount"),
+            func.size("words").alias("numWordsInSentence"),
+            )
+    sentences.printSchema()
 
-    # # pipeline = spark_nlp.setup_sentiment_pipeline()
-    # # output = spark_nlp.sentiment_analysis(sentence_data, pipeline)
+    # pipeline = spark_nlp.setup_sentiment_pipeline()
+    # output = spark_nlp.sentiment_analysis(sentence_data, pipeline)
 
 
-    # # Format to load ElasticSearch
-    # sentences = sentences.select(
-            # "sentence_id",
-            # func.to_json(func.struct(
-                # "sentence_id",
-                # "fileName",
-                # "position",
-                # "sentenceText",
-                # "numSentencesInBook",
-                # "multiSyllableCount",
-                # "numWordsInSentence"
-                # )
-                # ).alias("value")
-            # )
-    # # sentence = output.select(["sentence_id", "sentence"]).toJSON()
-    # sentences = sentences.rdd.map(lambda x: elastic.format_data(x))
+    # Format to load ElasticSearch
+    sentences = sentences.select(
+            "sentence_id",
+            func.to_json(func.struct(
+                "sentence_id",
+                "fileName",
+                "position",
+                "sentenceText",
+                "numSentencesInBook",
+                "multiSyllableCount",
+                "numWordsInSentence",
+                "title",
+                "author",
+                "subjects",
+                "uri"
+                )
+                ).alias("value")
+            )
+    # sentence = output.select(["sentence_id", "sentence"]).toJSON()
+    sentences = sentences.rdd.map(lambda x: elastic.format_data(x))
 
-    # # Write to ES
-    # write_rdd_to_es(sentences, es_write_conf)
-
-    # _read_es()
-    # sentences = sentence.rdd.map(lambda s: s.sentence[0].result)
-    # sentences = sentence.rdd.flatMap(lambda s: s.sentence)
-    # results = sentence.rdd.map(lambda s: s.result).zipWithUniqueId()
+    # Write to ES
+    write_rdd_to_es(sentences, es_write_conf)
 
     spark_session.stop()
     end_time = time.time()
@@ -161,14 +164,16 @@ def _get_s3file_map_func(key):
     :returns: iterator object of tuple (key, value)
     """
     s3_client = boto3.client('s3')
-    text = boto3.client('s3') \
-            .get_object(Bucket="jason-b", Key=key[0])['Body'] \
-            .read() \
-            .decode('utf-8') \
-            .replace("\n", " ")
-    # output = tuple(list(key).append(text))
-    yield key + (text,)
-
+    try:
+        text = boto3.client('s3') \
+                .get_object(Bucket="jason-b", Key=key[0])['Body'] \
+                .read() \
+                .decode('utf-8') \
+                .replace("\n", " ")
+        # output = tuple(list(key).append(text))
+        yield key + (text,)
+    except:
+        logging.info("Key: {0}".format(key))
 
 def _udf_array_count_syllables_sentence(token_array):
     return [_count_syllables_word(word) for word in token_array]
