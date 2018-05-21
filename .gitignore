@@ -6,6 +6,7 @@
 *.log
 *.out
 *.pyc
+*.json
 latex
 .DS_Store
 metastore_db

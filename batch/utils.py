@@ -15,7 +15,7 @@ def setup_logging(filename, loglevel):
             filename=filename,
             format=log_format,
             level=loglevel,
-            filemode = 'w'
+            filemode = 'a'
             )
 
 

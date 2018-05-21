@@ -16,6 +16,7 @@ import spark
 import aws
 import spark_nlp
 import elastic
+import gutenberg_metadata as gm
 
 import pyspark.sql.functions as func
 from pyspark.sql.types import IntegerType, ArrayType
@@ -28,19 +29,12 @@ NUM_PARTITIONS = 6
 def main():
     logfile = "{0}/log/sentence_segment.log".format(PROJECT_DIR)
     utils.setup_logging(logfile, logging.INFO)
-    logging.info(sys.path)
+    # logging.info(sys.path)
 
     args = utils.parse_arguments()
     batchsize = args.batchsize
 
     start_time = time.time()
-
-    # set_env_vars()
-
-    spark_session = spark.create_spark_session()
-
-    es = elastic.check_elasticsearch()
-    es_write_conf = spark.broadcast_es_write_config(spark_session)
 
     s3resource = aws.create_s3_resource()
     keys = aws.get_list_s3_files(
@@ -49,19 +43,35 @@ def main():
             numrows=batchsize
             )
 
-    # pbooks = s3_to_rdd(spark_session, keys)
-    # # testing_rdd = spark.sparkContext.wholeTextFiles("s3a://jason-b/{0}".format(TEXT_FOLDER), minPartitions=6, use_unicode=False)
-    # # spark.log_rdd(pbooks)
+    # metadata = gm.write_gutenberg_metadata_tojson(keys)
+    # keys_metadata = gm.read_gutenberg_metadata_fromjson()
+    # print(json.dumps(keys_metadata, indent=4))
+    keys_metadata = gm.get_list_gutenberg_metadata(keys)
+
+    spark_session = spark.create_spark_session()
+
+    es = elastic.check_elasticsearch()
+    es_write_conf = elastic.set_es_write_conf()
+    spark.broadcast_es_write_config(spark_session, es_write_conf)
+
+    pbooks = s3_to_rdd(spark_session, keys_metadata)
+    spark.log_rdd(pbooks)
+    # # write_rdd_textfile(pbooks, '../txt/test')
 
     # pipeline = spark_nlp.setup_pipeline()
     # books = spark_nlp.segment_sentences(spark_session, pbooks, pipeline)
+    # books.printSchema()
 
-    # # Go from one book per row to one sentence per row
+    # # # Go from one book per row to one sentence per row
     # sentences = books.select(
             # func.monotonically_increasing_id().alias("sentence_id"),
             # func.col("fileName"),
             # func.posexplode("sentence.result").alias("position", "sentenceText"),
             # func.size("sentence.result").alias("numSentencesInBook"),
+            # "title",
+            # "author",
+            # "subjects",
+            # "uri"
             # )
     # # logging.info("Num Sentences: {0}".format(sentences.count()))
 
@@ -117,13 +127,11 @@ def main():
     # # Write to ES
     # write_rdd_to_es(sentences, es_write_conf)
 
-    """
     # _read_es()
     # sentences = sentence.rdd.map(lambda s: s.sentence[0].result)
     # sentences = sentence.rdd.flatMap(lambda s: s.sentence)
     # results = sentence.rdd.map(lambda s: s.result).zipWithUniqueId()
 
-    """
     spark_session.stop()
     end_time = time.time()
     logging.info("RUNTIME: {0}".format(end_time - start_time))
@@ -154,11 +162,12 @@ def _get_s3file_map_func(key):
     """
     s3_client = boto3.client('s3')
     text = boto3.client('s3') \
-            .get_object(Bucket="jason-b", Key=key)['Body'] \
+            .get_object(Bucket="jason-b", Key=key[0])['Body'] \
             .read() \
             .decode('utf-8') \
             .replace("\n", " ")
-    yield (key, text)
+    # output = tuple(list(key).append(text))
+    yield key + (text,)
 
 
 def _udf_array_count_syllables_sentence(token_array):
