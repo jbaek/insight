@@ -148,7 +148,7 @@ def search_phrase():
 @app.route('/search/phrase/results', methods=['GET', 'POST'])
 def search_phrase_request():
     search_term = request.form["input"]
-    filename = request.form["filename"]
+    filename = request.form["fileName"]
     res = es.search(
         index="books",
         size=20,
