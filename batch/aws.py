@@ -21,18 +21,24 @@ def get_list_s3_files(s3resource, filetype, numrows=None):
     Need to call wholeTextFiles for each file and map to partition?
     :param s3resource: boto3 S3 resource object
     :param filetype: folder of S3 bucket
-    :returns: list of tuples containing key and file size in S3
+    :param numrows: number of rows in batch
+    :returns: list of filenames
     """
     try:
         bucket = s3resource.Bucket(S3BUCKET)
     except Exception as e:
         logging.info(e)
         raise e
-    fileslist = [textfile.key for textfile in bucket.objects.filter(Prefix=filetype)]
-    fileslist.remove('{0}/'.format(filetype))
-    if numrows is None:
-        numrows = len(fileslist)
-    fileslist = fileslist[:numrows]
+    objs = bucket.objects.filter(
+            Prefix=filetype
+            )
+    if numrows is not None:
+        objs = objs.limit(numrows)
+    fileslist = [textfile.key for textfile in objs if textfile.key[-1] != '/']
+    # fileslist.remove('{0}'.format(filetype))
+    # fileslist = fileslist[:numrows]
+    logging.info(fileslist[:10])
+    logging.info(fileslist[-10:])
     logging.info("Num Files: {0}".format(len(fileslist)))
     logging.debug(json.dumps(fileslist, indent=4))
     return fileslist
@@ -45,9 +51,13 @@ def duplicate_books(batchsize=None):
             filetype='txt',
             numrows=batchsize
             )
+    files = []
     for key in keys:
-        print(key.replace('txt', '').replace('.', '').replace('/', ''))
-        # s3resource.Object('jason-b',key).copy_from(CopySource='jason-b/{0}'.format(key))
+        filepath = key.split('/')
+        for i in range(2, 21):
+            newfile = "txt{0:02d}/{1}".format(i, filepath[1])
+            # print(newfile)
+            s3resource.Object(S3BUCKET, newfile).copy_from(CopySource='{0}/{1}'.format(S3BUCKET, key))
 
 
 def get_s3_object(key):
@@ -63,4 +73,7 @@ def read_s3_file(spark, filepath):
     return booksRDD.map(lambda x: x[1])
 
 if __name__ == '__main__':
-    duplicate_books(2)
+    s3 = create_s3_resource()
+    files = get_list_s3_files(s3, 'txt/')
+    print(len(files))
+    print(files[-1])

@@ -1,4 +1,4 @@
 #!/bin/bash
 
-kill $(ps aux | grep 'python flask/fff.py' | awk '{print $2}')
-python flask/fff.py &
+kill $(ps aux | grep 'python app.py' | awk '{print $2}')
+python app.py &

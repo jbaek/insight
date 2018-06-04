@@ -5,6 +5,7 @@ from elasticsearch import Elasticsearch, ConnectionError
 import logging
 from os import environ as env
 
+ES_MASTER_NODE = 'ip-10-0-0-8'
 # ['ip-10-0-0-8:9200','ip-10-0-0-10:9200','ip-10-0-0-6:9200','ip-10-0-0-12:9200']
 
 def check_elasticsearch():
@@ -33,6 +34,30 @@ def format_data(x):
     # test = (data['sentence_id'], json.dumps(data))
     test = (x[0], x[1])
     return test
+
+
+def set_es_write_conf():
+    """ set configuration for writing books to ElasticSearch
+    :returns: dict of configuration
+    """
+    es_write_conf = {
+            # node sending data to (this should be the master)
+            "es.nodes" : ES_MASTER_NODE,
+            "es.port" : '9200',
+            # specify a resource in the form 'index/doc-type'
+            "es.resource" : 'books/sentences',
+            "es.input.json" : 'yes',
+            # field in mapping used to specify the ES document ID
+            "es.mapping.id": "sentence_id",
+            'es.net.http.auth.user': env['ES_USER'],
+            'es.net.http.auth.pass': env['ES_PASS']
+            # 'es.batch.size.bytes': '200mb'
+            # 'es.batch.size.entries': '500'
+            # "es.nodes.client.only": 'true',
+            # "es.nodes.wan.only": 'yes',
+            # "es.nodes.discovery": 'false',
+            }
+    return es_write_conf
 
 
 def read_es():

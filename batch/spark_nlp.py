@@ -40,7 +40,16 @@ def segment_sentences(spark_session, books_rdd, pipeline):
     :param pipeline: SparkML pipeline
     :returns: data frame
     """
-    books_df = spark_session.createDataFrame(books_rdd, ["fileName", "rawDocument"])
+    books_df = spark_session.createDataFrame(books_rdd, [
+        "fileName",
+        "book_num",
+        "title",
+        "author",
+        "subjects",
+        "uri",
+        "rawDocument"
+        ]
+        )
     output = pipeline. \
             fit(books_df). \
             transform(books_df)
